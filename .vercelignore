@@ -1,0 +1,9 @@
+# Never upload local secrets or databases
+.env
+.env.*
+!.env.example
+*.db
+*.db-journal
+node_modules
+.next
+coverage

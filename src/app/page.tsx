@@ -1,103 +1,70 @@
-import Image from "next/image";
+import { redirect } from "next/navigation";
+import { Brain, Feather, ShieldCheck, Sparkles, Wand2, MessagesSquare } from "lucide-react";
+import { ButtonLink } from "@/components/ui/button";
+import { Logo } from "@/components/layout/app-shell";
+import { LanguageSwitcher } from "@/components/i18n/language-switcher";
+import { currentUser } from "@/server/auth/current";
+import { getT } from "@/i18n/server";
 
-export default function Home() {
+export const dynamic = "force-dynamic";
+
+const ICONS = [MessagesSquare, Brain, Wand2, Feather, ShieldCheck, Sparkles];
+
+export default async function Landing() {
+  if (await currentUser()) redirect("/discover");
+  const t = await getT();
   return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+    <div className="min-h-dvh">
+      <header className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-5 pt-[max(1.25rem,env(safe-area-inset-top))] pb-5">
+        <Logo />
+        <nav className="flex items-center gap-2">
+          <LanguageSwitcher compact />
+          <ButtonLink href="/discover" variant="ghost" size="sm" className="hidden sm:inline-flex">
+            {t.landing.explore}
+          </ButtonLink>
+          <ButtonLink href="/login" variant="secondary" size="sm">
+            {t.nav.signIn}
+          </ButtonLink>
+        </nav>
+      </header>
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
+      <main>
+        <section className="mx-auto max-w-4xl px-5 pt-14 pb-20 text-center sm:pt-24">
+          <p className="mx-auto mb-5 inline-flex items-center gap-2 rounded-full border border-line bg-surface/60 px-3 py-1 text-xs text-muted">
+            <span className="size-1.5 rounded-full bg-accent" /> {t.landing.badge}
+          </p>
+          <h1 className="font-display text-4xl leading-[1.15] font-extrabold tracking-tight text-balance sm:text-6xl">
+            {t.landing.titleA} <span className="bg-gradient-to-r from-accent via-glow to-accent bg-clip-text text-transparent">{t.landing.titleB}</span>
+          </h1>
+          <p className="mx-auto mt-5 max-w-xl text-base text-pretty text-muted sm:text-lg">{t.landing.subtitle}</p>
+          <div className="mt-9 flex flex-col justify-center gap-3 sm:flex-row">
+            <ButtonLink href="/register" size="lg">
+              {t.landing.start}
+            </ButtonLink>
+            <ButtonLink href="/discover" variant="secondary" size="lg">
+              {t.landing.browse}
+            </ButtonLink>
+          </div>
+          <p className="mt-4 text-xs text-faint">{t.landing.fine}</p>
+        </section>
+
+        <section className="mx-auto grid max-w-6xl gap-4 px-5 pb-24 sm:grid-cols-2 lg:grid-cols-3" aria-label={t.landing.featuresLabel}>
+          {t.landing.features.map((f, i) => {
+            const Icon = ICONS[i];
+            return (
+              <div key={f.title} className="rounded-[var(--radius-card)] border border-line bg-surface/70 p-6">
+                <div className="mb-4 grid size-10 place-items-center rounded-xl bg-accent-soft text-accent">
+                  <Icon className="size-5" />
+                </div>
+                <h2 className="font-semibold">{f.title}</h2>
+                <p className="mt-1.5 text-sm leading-relaxed text-muted">{f.body}</p>
+              </div>
+            );
+          })}
+        </section>
       </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+
+      <footer className="border-t border-line px-5 py-8 text-center text-xs text-faint">{t.landing.footer}</footer>
     </div>
   );
 }

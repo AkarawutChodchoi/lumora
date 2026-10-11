@@ -1,0 +1,394 @@
+// Lumora AI database schema (PostgreSQL, e.g. Neon).
+// Enum-like columns are plain strings validated in src/server/domain/enums.ts,
+// so adding a value never needs a migration.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL") // pooled connection for the app
+  directUrl = env("DIRECT_URL") // direct connection for migrations (advisory locks need it)
+}
+
+model User {
+  id                     String    @id @default(cuid())
+  email                  String    @unique
+  passwordHash           String
+  displayName            String
+  bio                    String    @default("")
+  avatarUrl              String?
+  role                   String    @default("user") // user | moderator | admin
+  status                 String    @default("active") // active | restricted | suspended | deletion_requested
+  ageConfirmed18         Boolean   @default(false)
+  matureContentEnabled   Boolean   @default(false)
+  memoryEnabled          Boolean   @default(true)
+  chatModel              String? // picked in the chat composer; null = deployment default
+  responseStyle          String    @default("balanced") // concise | balanced | detailed
+  deletionRequestedAt    DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  lastActiveAt           DateTime  @default(now())
+
+  sessions        Session[]
+  resetTokens     PasswordResetToken[]
+  characters      Character[]
+  favorites       Favorite[]
+  blocks          CharacterBlock[]
+  conversations   Conversation[]
+  generations     Generation[]
+  memories        Memory[]
+  creditAccount   CreditAccount?
+  ledger          CreditLedger[]       @relation("LedgerOwner")
+  purchases       Purchase[]
+  subscriptions   SubscriptionRecord[]
+  reportsFiled    Report[]             @relation("Reporter")
+  enforcements    Enforcement[]        @relation("EnforcementTarget")
+  appeals         Appeal[]
+  images          Image[]
+}
+
+// Uploaded pictures (character portraits, profile avatars), resized in the browser
+// before upload. Stored in the database to avoid needing object storage for the MVP.
+model Image {
+  id         String   @id @default(cuid())
+  ownerId    String
+  mime       String
+  bytes      Bytes
+  width      Int
+  height     Int
+  createdAt  DateTime @default(now())
+  owner      User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId])
+}
+
+model Session {
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String    @unique
+  userAgent  String?
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model PasswordResetToken {
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Character {
+  id                 String   @id @default(cuid())
+  ownerId            String
+  name               String
+  tagline            String   @default("")
+  description        String   @default("")
+  avatarUrl          String?
+  personality        String   @default("")
+  backstory          String   @default("")
+  scenario           String   @default("")
+  greeting           String
+  exampleDialogues   String   @default("")
+  tags               String   @default("[]") // JSON string array
+  category           String   @default("other") // primary category (first of `categories`)
+  categories         String   @default("[]") // JSON string array, up to 10
+  visibility         String   @default("private") // private | unlisted | public
+  publicationStatus  String   @default("draft") // draft | published | hidden | suspended
+  contentRating      String   @default("general") // general | teen | mature
+  currentVersion     Int      @default(1)
+  chatCount          Int      @default(0)
+  favoriteCount      Int      @default(0)
+  featured           Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  owner          User               @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  versions       CharacterVersion[]
+  favorites      Favorite[]
+  blocks         CharacterBlock[]
+  conversations  Conversation[]
+  memories       Memory[]
+
+  @@index([ownerId])
+  @@index([visibility, publicationStatus])
+  @@index([category])
+}
+
+// Immutable snapshot of the prompt-relevant fields. Conversations pin the
+// version they started with so edits never silently rewrite an ongoing story.
+model CharacterVersion {
+  id           String   @id @default(cuid())
+  characterId  String
+  version      Int
+  snapshot     String // JSON of prompt fields
+  createdAt    DateTime @default(now())
+  character    Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  conversations Conversation[]
+
+  @@unique([characterId, version])
+}
+
+model Favorite {
+  userId       String
+  characterId  String
+  createdAt    DateTime  @default(now())
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  character    Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  @@id([userId, characterId])
+}
+
+model CharacterBlock {
+  userId       String
+  characterId  String
+  createdAt    DateTime  @default(now())
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  character    Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  @@id([userId, characterId])
+}
+
+model Conversation {
+  id                  String    @id @default(cuid())
+  userId              String
+  characterId         String
+  characterVersionId  String
+  title               String
+  pinned              Boolean   @default(false)
+  status              String    @default("active") // active | archived
+  nextSequence        Int       @default(1)
+  activeGenerationId  String?   // non-null while a reply is being generated (concurrency guard)
+  memoryScanSeq       Int       @default(0) // last message sequence reviewed by automatic memory
+  note                String?   // short "note" the character writes about the latest chat (shown on the chats screen)
+  noteAt              DateTime?
+  lastMessageAt       DateTime  @default(now())
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  character         Character        @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  characterVersion  CharacterVersion @relation(fields: [characterVersionId], references: [id], onDelete: Cascade)
+  messages          Message[]
+  generations       Generation[]
+  memories          Memory[]
+
+  @@index([userId, lastMessageAt])
+}
+
+// Messages are append-only by sequence. Regenerating or editing deactivates the
+// old message (isActive = false) and appends a new one, so ordering never breaks
+// and previous variants remain auditable.
+model Message {
+  id              String   @id @default(cuid())
+  conversationId  String
+  sequence        Int
+  role            String // user | assistant
+  content         String
+  status          String   @default("completed") // pending | streaming | completed | failed | cancelled
+  isActive        Boolean  @default(true)
+  replyToId       String?  // assistant message -> the user message it answers
+  generationId    String?
+  errorCode       String?
+  flagged         Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  conversation  Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, sequence])
+  @@index([conversationId, isActive, sequence])
+}
+
+model Generation {
+  id              String    @id @default(cuid())
+  userId          String
+  conversationId  String
+  idempotencyKey  String
+  status          String    @default("pending") // pending | streaming | cancel_requested | completed | failed | cancelled
+  provider        String?
+  model           String?
+  promptVersion   String?
+  inputTokens     Int?
+  outputTokens    Int?
+  costCoins       Int       @default(0)
+  latencyMs       Int?
+  errorCode       String?
+  createdAt       DateTime  @default(now())
+  completedAt     DateTime?
+
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversation  Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, idempotencyKey])
+  @@index([createdAt])
+}
+
+model Memory {
+  id                String    @id @default(cuid())
+  userId            String
+  characterId       String
+  conversationId    String?
+  type              String // preference | relationship | episodic | world
+  key               String?   // normalized slot, e.g. "user.name", used for conflict resolution
+  content           String
+  source            String // user_stated | ai_inferred | user_edited
+  sourceMessageIds  String    @default("[]")
+  confidence        Float     @default(0.5)
+  importance        Int       @default(3) // 1..5
+  supersededById    String?
+  expiresAt         DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  character     Character     @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  conversation  Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@index([userId, characterId])
+}
+
+model CreditAccount {
+  userId     String   @id
+  balance    Int      @default(0)
+  updatedAt  DateTime @updatedAt
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Append-only ledger. Rows are never updated or deleted; corrections are new rows.
+model CreditLedger {
+  id              String   @id @default(cuid())
+  userId          String
+  delta           Int
+  balanceAfter    Int
+  type            String // signup_bonus | daily_bonus | purchase | generation_charge | generation_refund | admin_adjustment | subscription_grant | purchase_refund
+  referenceType   String?
+  referenceId     String?
+  idempotencyKey  String   @unique
+  actorId         String?
+  note            String?
+  createdAt       DateTime @default(now())
+  user            User     @relation("LedgerOwner", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model Purchase {
+  id           String   @id @default(cuid())
+  userId       String
+  productId    String
+  provider     String
+  providerRef  String   @unique
+  status       String // completed | refunded
+  amountMinor  Int
+  currency     String
+  coins        Int
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PaymentEvent {
+  id           String   @id @default(cuid())
+  provider     String
+  eventId      String
+  type         String
+  payload      String
+  result       String
+  createdAt    DateTime @default(now())
+
+  @@unique([provider, eventId])
+}
+
+model SubscriptionRecord {
+  id                String   @id @default(cuid())
+  userId            String
+  planId            String
+  status            String // active | cancelled | expired
+  provider          String
+  providerRef       String   @unique
+  currentPeriodEnd  DateTime
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+}
+
+model Report {
+  id              String    @id @default(cuid())
+  reporterId      String
+  targetType      String // character | message | user
+  targetId        String
+  category        String
+  details         String    @default("")
+  // Copy of the reported content at report time, so reviewers see exactly what
+  // was reported without being given access to the whole conversation.
+  snapshot        String    @default("")
+  severity        String // low | medium | high | critical
+  status          String    @default("open") // open | reviewing | actioned | dismissed
+  resolvedById    String?
+  resolutionNote  String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  reporter        User      @relation("Reporter", fields: [reporterId], references: [id], onDelete: Cascade)
+
+  @@unique([reporterId, targetType, targetId])
+  @@index([status, severity])
+}
+
+model Enforcement {
+  id         String    @id @default(cuid())
+  userId     String
+  action     String // warning | restriction | suspension | reinstatement
+  reason     String
+  actorId    String
+  expiresAt  DateTime?
+  createdAt  DateTime  @default(now())
+  user       User      @relation("EnforcementTarget", fields: [userId], references: [id], onDelete: Cascade)
+  appeals    Appeal[]
+}
+
+model Appeal {
+  id             String    @id @default(cuid())
+  enforcementId  String
+  userId         String
+  message        String
+  status         String    @default("open") // open | accepted | rejected
+  decidedById    String?
+  decisionNote   String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  enforcement    Enforcement @relation(fields: [enforcementId], references: [id], onDelete: Cascade)
+  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorId     String?
+  action      String
+  targetType  String
+  targetId    String
+  details     String   @default("{}")
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([targetType, targetId])
+}
+
+// Non-secret runtime settings editable by admins (model routing, limits, flags).
+model AppSetting {
+  key        String   @id
+  value      String
+  updatedBy  String?
+  updatedAt  DateTime @updatedAt
+}

@@ -1,26 +1,166 @@
 @import "tailwindcss";
 
+/* Lumora design tokens — dark-first, violet/indigo accents. */
+@theme {
+  --color-bg: #0b0a12;
+  --color-surface: #13111d;
+  --color-surface-2: #1b1828;
+  --color-surface-3: #252136;
+  --color-line: #2c2840;
+  --color-line-strong: #3c3656;
+  --color-fg: #ece9f6;
+  --color-muted: #a29cb8;
+  --color-faint: #6f6987;
+  --color-accent: #8b7bff;
+  --color-accent-strong: #7262f5;
+  --color-accent-soft: #8b7bff22;
+  --color-glow: #c084fc;
+  --color-ok: #34d399;
+  --color-warn: #fbbf24;
+  --color-danger: #f87171;
+
+  --font-sans: var(--font-jakarta), var(--font-thai), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-jakarta), var(--font-thai), ui-sans-serif, system-ui, sans-serif;
+
+  --radius-card: 1.25rem;
+
+  --animate-fade-in: fade-in 0.25s ease-out both;
+  --animate-shimmer: shimmer 1.6s linear infinite;
+  --animate-blink: blink 1.2s infinite ease-in-out;
+
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes shimmer {
+    from { background-position: -400px 0; }
+    to { background-position: 400px 0; }
+  }
+  @keyframes blink {
+    0%, 80%, 100% { opacity: 0.25; }
+    40% { opacity: 1; }
+  }
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: dark;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* Light theme: chosen in Profile (cookie lumora_theme), or "system" following the device. */
+:root[data-theme="light"] {
+  --color-bg: #f6f5fb;
+  --color-surface: #ffffff;
+  --color-surface-2: #f0eef8;
+  --color-surface-3: #e5e1f1;
+  --color-line: #e0dcec;
+  --color-line-strong: #c9c2dc;
+  --color-fg: #1b1828;
+  --color-muted: #59546e;
+  --color-faint: #7d7894;
+  --color-accent: #6a59ee;
+  --color-accent-strong: #5846e2;
+  --color-accent-soft: #6a59ee1f;
+  --color-glow: #a855f7;
+  --color-ok: #047857;
+  --color-warn: #b45309;
+  --color-danger: #dc2626;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: light) {
+  :root[data-theme="system"] {
+  --color-bg: #f6f5fb;
+  --color-surface: #ffffff;
+  --color-surface-2: #f0eef8;
+  --color-surface-3: #e5e1f1;
+  --color-line: #e0dcec;
+  --color-line-strong: #c9c2dc;
+  --color-fg: #1b1828;
+  --color-muted: #59546e;
+  --color-faint: #7d7894;
+  --color-accent: #6a59ee;
+  --color-accent-strong: #5846e2;
+  --color-accent-soft: #6a59ee1f;
+  --color-glow: #a855f7;
+  --color-ok: #047857;
+  --color-warn: #b45309;
+  --color-danger: #dc2626;
+  color-scheme: light;
+  }
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* Text size preference (cookie lumora_text). Everything is sized in rem, so it scales. */
+:root[data-text="small"] {
+  font-size: 93.75%;
+}
+:root[data-text="large"] {
+  font-size: 112.5%;
+}
+
+html,
+body {
+  background: var(--color-bg);
+  color: var(--color-fg);
+  /* Safety net: a stray wide element must never widen the page on phones. */
+  overflow-x: clip;
+}
+
+/* Inputs at 16px+ stop iOS Safari from zooming the page on focus. */
+@media (max-width: 639px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px;
   }
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Soft ambient glow behind the app. */
+.ambient {
+  background:
+    radial-gradient(900px 500px at 10% -10%, #6d5cff1f, transparent 60%),
+    radial-gradient(700px 400px at 100% 0%, #c084fc14, transparent 60%),
+    var(--color-bg);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+::selection {
+  background: #8b7bff55;
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--color-surface-2) 0, var(--color-surface-3) 40%, var(--color-surface-2) 80%);
+  background-size: 800px 100%;
+  animation: var(--animate-shimmer);
+}
+
+/* Horizontal swipe rows: no visible scrollbar (touch and trackpads still scroll). */
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
