@@ -6,13 +6,13 @@ Legend: ✅ done and tested · 🟡 done with limitations · ⬜ not started
 |---|---|---|
 | Project setup, env config, error handling, logging, health check | ✅ | `GET /api/health` |
 | Landing page and responsive shell (sidebar / bottom nav) | ✅ | Back button on non-tab pages (phones and desktop), admin "back to app" on phones |
-| Register / login / logout / password change | ✅ | Argon2id, rate limits, session revocation |
-| Forgot password | 🟡 | Token flow works. **No email sender**: the link is printed to the server log in development only |
-| Profile, preferences, data deletion, account deletion | ✅ | Erasure runs after 7 days via `/api/cron/maintenance` |
+| Register / login / logout / password change | ✅ | Argon2id, session revocation. Rate limits are stored in the database so they hold across serverless instances (login, register, reset, password checks, chat, uploads, reports) |
+| Forgot password | 🟡 | Token flow works (single-use, atomic; other links die after a reset or password change). **No email sender**: the link is printed to the server log in development only; in production the page now says plainly that no email was sent |
+| Profile, preferences, data deletion, account deletion | ✅ | Erasure runs after 7 days via `/api/cron/maintenance`, scheduled daily by Vercel Cron (needs `CRON_SECRET`) |
 | Discover, search, categories, tags, sorting | ✅ | Keyword search (SQL `LIKE`) |
 | Character CRUD, versions, publish (public/unlisted/private), favorites, block | ✅ | |
 | Character image upload | 🟡 | HTTPS image URL plus a generated portrait. **No object-storage upload yet** |
-| Chat: streaming, history pagination, stop, regenerate, edit-last, rename, pin, delete | ✅ | SSE. Continues after disconnect. Replies whose server worker died (app closed, function stopped) are closed out after 75s or immediately on Stop: partial text is kept, otherwise refunded. Stop works after reopening the app |
+| Chat: streaming, history pagination, stop, regenerate, edit-last, rename, pin, delete | ✅ | SSE. Continues after disconnect. Replies whose server worker died (app closed, function stopped) are closed out after 75s or immediately on Stop: partial text is kept, otherwise refunded. Stop works after reopening the app. Replies stop at 48s (before the 60s function limit) and keep the text so far. Worker, Stop and the stale reaper race for one final outcome, so a reply is never both delivered and refunded |
 | AI provider abstraction: Anthropic + Google Gemini adapters | 🟡 | **Gemini is live in production** (free tier, default `gemini-3.5-flash-lite`) and was verified with real Thai/English chats. Anthropic adapter not yet tested live (no key). Free-tier note: Google may use prompts/replies to improve its products |
 | Prompt assembly, token budgeting, prompt-injection hardening | ✅ | |
 | Memory: extraction, conflicts, retrieval, limits, expiry, user management | ✅ | Rule-based. LLM inference and vector search are not built |
@@ -27,7 +27,7 @@ Legend: ✅ done and tested · 🟡 done with limitations · ⬜ not started
 | Reply style preference (short / balanced / detailed) | ✅ | `User.responseStyle`, added to the prompt as a separate non-cached block |
 | Coin transparency | ✅ | Price list on the Coins page, balance + model chip under the chat box, ledger history |
 | Chats inbox | ✅ | Compact header; character notes only from the 10 most recently chatted characters |
-| Tests | ✅ | 113 Vitest tests plus an HTTP smoke script |
+| Tests | ✅ | 122 Vitest tests plus an HTTP smoke script |
 | CI | ✅ | `.github/workflows/ci.yml` (not run here: no GitHub remote) |
 | PostgreSQL + production deploy | ✅ | Neon (Singapore) + Vercel (sin1): https://lumora-nine-rose.vercel.app. Dev/test use `lumora_dev` / `lumora_test` schemas |
 | Android APK (Trusted Web Activity via PWABuilder) | ✅ | `public/lumora.apk`; signing key kept outside the repo in `../lumora-android/` (back it up) |

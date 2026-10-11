@@ -43,6 +43,10 @@ export const STALE_LOCK_MS = 75 * 1000;
 // after this long, it is gone and the cancel is completed on its behalf.
 const CANCEL_GRACE_MS = 4000;
 const PERSIST_EVERY_MS = 800;
+// Stop streaming before the host's 60s limit kills the function, so the reply is saved
+// (partial text kept, or a refund) instead of being left half-finished.
+export const GENERATION_DEADLINE_MS = 48 * 1000;
+const RUNNING = ["pending", "streaming", "cancel_requested"];
 
 export type ChatStreamEvent =
   | { type: "start"; generationId: string; userMessage: ClientMessage | null; assistantMessageId: string; replacedMessageIds: string[]; devMode: boolean; notice?: string }
@@ -184,12 +188,24 @@ async function refund(userId: string, generationId: string, cost: number) {
   });
 }
 
-async function failGeneration(generationId: string, userId: string, conversationId: string, code: string, messageId: string | null) {
-  const gen = await db.generation.update({ where: { id: generationId }, data: { status: "failed", errorCode: code, completedAt: new Date() } });
-  if (messageId) await db.message.update({ where: { id: messageId }, data: { status: "failed", errorCode: code } });
-  else await db.message.updateMany({ where: { generationId, status: { in: ["pending", "streaming"] } }, data: { status: "failed", errorCode: code } });
+/**
+ * Claim a running generation for one final outcome. Only one of the worker, a cancel and
+ * the stale reaper can win, so a reply is never both delivered and refunded.
+ */
+async function claimFinal(generationId: string, data: Prisma.GenerationUpdateManyMutationInput, from: string[] = RUNNING) {
+  const res = await db.generation.updateMany({ where: { id: generationId, status: { in: from } }, data: { ...data, completedAt: new Date() } });
+  return res.count === 1;
+}
+
+async function failGeneration(generationId: string, userId: string, conversationId: string, code: string, messageId: string | null, content?: string) {
+  if (!(await claimFinal(generationId, { status: "failed", errorCode: code }))) return false;
+  const gen = await db.generation.findUniqueOrThrow({ where: { id: generationId }, select: { costCoins: true } });
+  const data = { status: "failed", errorCode: code, ...(content !== undefined ? { content } : {}) };
+  if (messageId) await db.message.update({ where: { id: messageId }, data });
+  else await db.message.updateMany({ where: { generationId, status: { in: ["pending", "streaming"] } }, data });
   await refund(userId, generationId, gen.costCoins);
   await releaseLock(conversationId, generationId);
+  return true;
 }
 
 /** Build the provider prompt from the pinned character version, memories and active history. */
@@ -227,7 +243,7 @@ async function buildContext(user: User, p: Prepared) {
  * Stream the reply. `emit` may throw (client went away); generation continues and
  * the result is persisted regardless. Returns when the generation is finalised.
  */
-export async function runGeneration(user: User, p: Prepared, emit: (e: ChatStreamEvent) => void) {
+export async function runGeneration(user: User, p: Prepared, emit: (e: ChatStreamEvent) => void, opts: { deadlineMs?: number } = {}) {
   const send = (e: ChatStreamEvent) => {
     try {
       emit(e);
@@ -243,6 +259,11 @@ export async function runGeneration(user: User, p: Prepared, emit: (e: ChatStrea
   let stopReason = "end_turn";
   let servedModel = p.model;
   let cancelPoll: ReturnType<typeof setInterval> | undefined;
+  let hitDeadline = false;
+  const deadline = setTimeout(() => {
+    hitDeadline = true;
+    controller.abort();
+  }, opts.deadlineMs ?? GENERATION_DEADLINE_MS);
 
   send({
     type: "start",
@@ -279,28 +300,35 @@ export async function runGeneration(user: User, p: Prepared, emit: (e: ChatStrea
     }, 1000);
 
     let lastPersist = Date.now();
-    for await (const ev of provider.stream({
-      model: p.model,
-      systemBlocks: prompt.systemBlocks,
-      messages: prompt.messages,
-      maxOutputTokens: settings.maxOutputTokens,
-      effort: settings.effort,
-      timeoutMs: settings.requestTimeoutMs,
-      signal: controller.signal,
-    })) {
-      if (ev.type === "text") {
-        text += ev.text;
-        send({ type: "delta", text: ev.text });
-        if (Date.now() - lastPersist > PERSIST_EVERY_MS) {
-          lastPersist = Date.now();
-          // Persist partial text so a crash or disconnect never loses the whole reply.
-          await db.message.update({ where: { id: p.assistantMessageId }, data: { content: text } });
+    try {
+      for await (const ev of provider.stream({
+        model: p.model,
+        systemBlocks: prompt.systemBlocks,
+        messages: prompt.messages,
+        maxOutputTokens: settings.maxOutputTokens,
+        effort: settings.effort,
+        timeoutMs: Math.min(settings.requestTimeoutMs, opts.deadlineMs ?? GENERATION_DEADLINE_MS),
+        signal: controller.signal,
+      })) {
+        if (ev.type === "text") {
+          text += ev.text;
+          send({ type: "delta", text: ev.text });
+          if (Date.now() - lastPersist > PERSIST_EVERY_MS) {
+            lastPersist = Date.now();
+            // Persist partial text so a crash or disconnect never loses the whole reply.
+            await db.message.update({ where: { id: p.assistantMessageId }, data: { content: text } });
+          }
+        } else {
+          usage = ev.usage;
+          stopReason = ev.stopReason;
+          servedModel = ev.model;
         }
-      } else {
-        usage = ev.usage;
-        stopReason = ev.stopReason;
-        servedModel = ev.model;
       }
+    } catch (err) {
+      if (!hitDeadline) throw err;
+      // Out of time: keep what was written so far as a shortened reply, or fail and refund.
+      if (!text.trim()) throw new ProviderError("timeout", "The AI took too long to respond", true);
+      stopReason = "max_tokens";
     }
 
     if (stopReason === "refusal") throw new ProviderError("content_policy", "The AI declined to continue this part of the story. Try steering it differently.");
@@ -308,21 +336,23 @@ export async function runGeneration(user: User, p: Prepared, emit: (e: ChatStrea
     if (mod.action === "block") throw new ProviderError("content_policy", mod.userMessage ?? "The reply was withheld by the content policy.");
     if (!text.trim()) throw new ProviderError("provider", "The AI returned an empty reply");
 
+    const won = await claimFinal(p.generationId, {
+      status: "completed",
+      model: servedModel,
+      inputTokens: provider.capabilities.realUsage ? usage?.inputTokens : null,
+      outputTokens: provider.capabilities.realUsage ? usage?.outputTokens : null,
+      latencyMs: Date.now() - started,
+      errorCode: stopReason === "max_tokens" ? "truncated" : null,
+    });
+    if (!won) {
+      // Already closed out elsewhere (stale reaper); its outcome stands.
+      const current = await db.message.findUniqueOrThrow({ where: { id: p.assistantMessageId } });
+      send({ type: "done", message: toClientMessage(current), balance: await balanceOf(user.id) });
+      return;
+    }
     const msg = await db.message.update({
       where: { id: p.assistantMessageId },
       data: { content: text, status: "completed", flagged: mod.action === "flag" },
-    });
-    await db.generation.update({
-      where: { id: p.generationId },
-      data: {
-        status: "completed",
-        model: servedModel,
-        inputTokens: provider.capabilities.realUsage ? usage?.inputTokens : null,
-        outputTokens: provider.capabilities.realUsage ? usage?.outputTokens : null,
-        latencyMs: Date.now() - started,
-        completedAt: new Date(),
-        errorCode: stopReason === "max_tokens" ? "truncated" : null,
-      },
     });
     await releaseLock(p.conversationId, p.generationId);
     await db.conversation.update({ where: { id: p.conversationId }, data: { lastMessageAt: new Date() } });
@@ -341,19 +371,17 @@ export async function runGeneration(user: User, p: Prepared, emit: (e: ChatStrea
     }
     const code = pe?.kind ?? "internal";
     // Content-policy failures discard the partial text; other failures keep it for context.
-    await db.message.update({ where: { id: p.assistantMessageId }, data: { content: code === "content_policy" ? "" : text } });
-    await failGeneration(p.generationId, user.id, p.conversationId, code, p.assistantMessageId);
+    await failGeneration(p.generationId, user.id, p.conversationId, code, p.assistantMessageId, code === "content_policy" ? "" : text);
     send({ type: "error", code, message: pe?.message ?? "Something went wrong while generating the reply.", balance: await balanceOf(user.id) });
   } finally {
     clearInterval(cancelPoll);
+    clearTimeout(deadline);
   }
 }
 
 async function finishCancelled(userId: string, p: Prepared, text: string, latencyMs: number) {
-  const gen = await db.generation.update({
-    where: { id: p.generationId },
-    data: { status: "cancelled", completedAt: new Date(), latencyMs },
-  });
+  if (!(await claimFinal(p.generationId, { status: "cancelled", latencyMs }))) return;
+  const gen = await db.generation.findUniqueOrThrow({ where: { id: p.generationId }, select: { costCoins: true } });
   await db.message.update({ where: { id: p.assistantMessageId }, data: { content: text, status: text.trim() ? "completed" : "cancelled" } });
   // Policy: cancelling before any text is produced is free.
   if (!text.trim()) {
@@ -397,21 +425,23 @@ async function balanceOf(userId: string) {
  */
 async function closeOut(generationId: string) {
   const gen = await db.generation.findUnique({ where: { id: generationId } });
-  if (!gen || !["pending", "streaming", "cancel_requested"].includes(gen.status)) return;
+  if (!gen || !RUNNING.includes(gen.status)) return;
   const msg = await db.message.findFirst({ where: { generationId, role: "assistant" } });
   if (msg?.content.trim()) {
-    const done = await db.generation.updateMany({ where: { id: generationId, status: gen.status }, data: { status: "cancelled", completedAt: new Date(), errorCode: "stale" } });
-    if (done.count) await db.message.update({ where: { id: msg.id }, data: { status: "completed" } });
+    if (await claimFinal(generationId, { status: "cancelled", errorCode: "stale" }, [gen.status])) {
+      await db.message.update({ where: { id: msg.id }, data: { status: "completed" } });
+    }
     await releaseLock(gen.conversationId, generationId);
   } else if (gen.status === "cancel_requested") {
     // Stopped before any text: same outcome as a normal cancel (free, reply removed).
-    await db.generation.update({ where: { id: generationId }, data: { status: "cancelled", completedAt: new Date() } });
-    if (msg) await db.message.update({ where: { id: msg.id }, data: { status: "cancelled", isActive: false } });
-    await refund(gen.userId, generationId, gen.costCoins);
+    if (await claimFinal(generationId, { status: "cancelled" }, ["cancel_requested"])) {
+      if (msg) await db.message.update({ where: { id: msg.id }, data: { status: "cancelled", isActive: false } });
+      await refund(gen.userId, generationId, gen.costCoins);
+    }
     await releaseLock(gen.conversationId, generationId);
   } else {
-    await failGeneration(generationId, gen.userId, gen.conversationId, "stale", msg?.id ?? null);
-    if (msg) await db.message.update({ where: { id: msg.id }, data: { isActive: false } });
+    const failed = await failGeneration(generationId, gen.userId, gen.conversationId, "stale", msg?.id ?? null);
+    if (failed && msg) await db.message.update({ where: { id: msg.id }, data: { isActive: false } });
   }
   logger.warn("generation_closed_out", { generationId, previous: gen.status });
 }

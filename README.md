@@ -36,7 +36,9 @@ To create an admin account:
 SEED_ADMIN_EMAIL=you@example.com SEED_ADMIN_PASSWORD='a-strong-password' npm run db:seed
 ```
 
-If the email already exists, this promotes that account to admin.
+If the email already belongs to a normal account, the script stops instead of promoting it
+(anyone can register any address). Check the account is yours, then add
+`SEED_ADMIN_PROMOTE_EXISTING=true` to promote it.
 
 ### Real AI replies
 
@@ -129,10 +131,12 @@ touch production data, which lives in the default `public` schema.
    `prisma migrate deploy` before `next build`, so tables are created/updated automatically.
 4. Create the first admin: run `npm run db:seed` locally with `DATABASE_URL` pointing at
    production and `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD` set (use a strong password).
-5. Schedule `POST /api/cron/maintenance` daily with `Authorization: Bearer $CRON_SECRET`.
-6. Limits: the in-memory rate limiter is per serverless instance (use Redis to make it global),
-   and long AI replies can hit the plan's function time limit — set `maxDuration` or move to a
-   long-running host (Render/Railway/Fly) if replies get cut off.
+5. Maintenance runs daily through Vercel Cron (`vercel.json`), which calls
+   `GET /api/cron/maintenance` with `Authorization: Bearer $CRON_SECRET`. Set `CRON_SECRET`
+   (16+ random chars) on Vercel or the job is rejected and deleted accounts are never erased.
+6. Limits: rate limits are stored in the database (`RateLimitBucket`), so they hold across
+   serverless instances. A reply streams for at most 48 seconds (the chat route's limit is 60);
+   after that the text so far is saved as a shortened reply, or the coins are refunded.
 7. Back up before migrations (Neon supports point-in-time restore and branches). Prisma
    migrations are forward-only; roll back by redeploying the previous build and restoring data.
 

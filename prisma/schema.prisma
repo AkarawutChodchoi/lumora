@@ -392,3 +392,12 @@ model AppSetting {
   updatedBy  String?
   updatedAt  DateTime @updatedAt
 }
+
+// Fixed-window rate-limit counters, shared by all server instances. `key` is a hash.
+model RateLimitBucket {
+  key      String   @id
+  count    Int
+  resetAt  DateTime
+
+  @@index([resetAt])
+}

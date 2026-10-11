@@ -25,7 +25,7 @@ export const GET = route(async (req: Request, { params }: Ctx) => {
  */
 export const POST = route(async (req: Request, { params }: Ctx) => {
   const user = await requireUser();
-  rateLimit(`chat:${user.id}`, 30, 60 * 1000);
+  await rateLimit(`chat:${user.id}`, 30, 60 * 1000);
   const input = await parseJson(req, sendSchema);
   const prepared = await prepareGeneration(user, (await params).id, input);
 

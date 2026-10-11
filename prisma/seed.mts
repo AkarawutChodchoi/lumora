@@ -1,6 +1,7 @@
 // Seeds original demo characters and (optionally) an admin account.
 // Usage: npm run db:seed
-//   SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD  -> create or promote that account to admin.
+//   SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD  -> create that admin account (promoting an existing
+//   account also needs SEED_ADMIN_PROMOTE_EXISTING=true).
 // Safe to re-run: existing rows are left untouched.
 import { PrismaClient } from "@prisma/client";
 import { hash } from "@node-rs/argon2";
@@ -153,12 +154,19 @@ async function main() {
   const email = process.env.SEED_ADMIN_EMAIL?.trim().toLowerCase();
   if (email) {
     const existing = await db.user.findUnique({ where: { email } });
-    if (existing) {
+    if (existing?.role === "admin") {
+      console.log(`${email} is already an admin.`);
+    } else if (existing) {
+      // Anyone can register any email address, so never promote an existing account by accident.
+      if (process.env.SEED_ADMIN_PROMOTE_EXISTING !== "true") {
+        throw new Error(`${email} already exists as a normal account. Check that it is really yours, then rerun with SEED_ADMIN_PROMOTE_EXISTING=true to promote it.`);
+      }
       await db.user.update({ where: { id: existing.id }, data: { role: "admin" } });
+      await db.auditLog.create({ data: { actorId: null, action: "user.role_changed", targetType: "user", targetId: existing.id, details: JSON.stringify({ from: existing.role, to: "admin", reason: "seed script" }) } });
       console.log(`Promoted ${email} to admin.`);
     } else {
       const password = process.env.SEED_ADMIN_PASSWORD;
-      if (!password || password.length < 8) throw new Error("Set SEED_ADMIN_PASSWORD (8+ chars) to create a new admin account.");
+      if (!password || password.length < 12) throw new Error("Set SEED_ADMIN_PASSWORD (12+ chars) to create a new admin account.");
       const admin = await db.user.create({ data: { email, displayName: "Admin", role: "admin", passwordHash: await hash(password, ARGON) } });
       await db.creditAccount.create({ data: { userId: admin.id, balance: 0 } });
       console.log(`Created admin account ${email}.`);

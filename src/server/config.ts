@@ -55,6 +55,11 @@ export function activeAiProvider(): AiProviderName {
 
 export const AI_PROVIDER_LABEL: Record<AiProviderName, string> = { anthropic: "Anthropic Claude", gemini: "Google Gemini", dev: "Dev placeholder" };
 
+/** Whether reset emails can actually be delivered. No email adapter exists yet. */
+export function emailDeliveryEnabled(): boolean {
+  return false;
+}
+
 export function paymentsEnabled(): boolean {
   const c = config();
   return Boolean(c.PAYMENT_PROVIDER && c.PAYMENT_WEBHOOK_SECRET);

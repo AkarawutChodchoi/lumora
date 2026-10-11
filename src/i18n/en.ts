@@ -116,6 +116,7 @@ export const en = {
     resetSub: "Enter your email and we will send a reset link.",
     sendLink: "Send reset link",
     resetSent: "If an account exists for that email, a reset link has been sent.",
+    resetUnavailable: "Email sending is not set up yet, so no reset link was sent. If you cannot sign in, please contact the site admin.",
     backToSignIn: "Back to sign in",
     newPasswordTitle: "Choose a new password",
     missingToken: "This reset link is missing its token.",

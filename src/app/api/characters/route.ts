@@ -11,7 +11,7 @@ export const GET = route(async (req: Request) => {
 
 export const POST = route(async (req: Request) => {
   const user = await requireActiveUser();
-  rateLimit(`character-create:${user.id}`, 20, 60 * 60 * 1000);
+  await rateLimit(`character-create:${user.id}`, 20, 60 * 60 * 1000);
   const character = await createCharacter(user, await parseJson(req, characterInputSchema));
   return ok({ id: character.id }, { status: 201 });
 });

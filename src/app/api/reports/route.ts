@@ -7,7 +7,7 @@ export const GET = route(async () => ok({ items: await listMyReports(await requi
 
 export const POST = route(async (req: Request) => {
   const user = await requireUser();
-  rateLimit(`report:${user.id}`, 10, 60 * 60 * 1000);
+  await rateLimit(`report:${user.id}`, 10, 60 * 60 * 1000);
   const report = await createReport(user, await parseJson(req, reportSchema));
   return ok({ id: report.id }, { status: 201 });
 });

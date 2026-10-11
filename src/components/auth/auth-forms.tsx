@@ -136,8 +136,8 @@ export function ForgotForm() {
     setBusy(true);
     setError(null);
     try {
-      await api("/api/auth/forgot-password", { method: "POST", body: { email: new FormData(e.currentTarget).get("email") } });
-      setDone(t.auth.resetSent);
+      const res = await api<{ emailSent: boolean }>("/api/auth/forgot-password", { method: "POST", body: { email: new FormData(e.currentTarget).get("email") } });
+      setDone(res.emailSent ? t.auth.resetSent : t.auth.resetUnavailable);
     } catch (err) {
       setError(errorMessage(err));
     } finally {

@@ -3,14 +3,16 @@ import { NextResponse } from "next/server";
 import { processDueDeletions } from "@/server/services/users";
 import { db } from "@/server/db";
 import { logger } from "@/server/logger";
+import { purgeExpiredRateLimits } from "@/server/rate-limit";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Scheduled maintenance (call daily from a cron job with `Authorization: Bearer $CRON_SECRET`):
- * erases accounts past their deletion grace period and purges expired tokens/sessions.
+ * Scheduled maintenance, called daily with `Authorization: Bearer $CRON_SECRET`
+ * (Vercel Cron sends a GET with that header; see vercel.json): erases accounts past
+ * their deletion grace period and purges expired tokens, sessions and rate-limit windows.
  */
-export async function POST(req: Request) {
+async function handler(req: Request) {
   const secret = process.env.CRON_SECRET ?? "";
   const given = req.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
   const ok = secret.length >= 16 && given.length === secret.length && timingSafeEqual(Buffer.from(given), Buffer.from(secret));
@@ -21,6 +23,10 @@ export async function POST(req: Request) {
   const sessions = await db.session.deleteMany({ where: { OR: [{ expiresAt: { lt: now } }, { revokedAt: { not: null } }] } });
   const tokens = await db.passwordResetToken.deleteMany({ where: { expiresAt: { lt: now } } });
   const memories = await db.memory.deleteMany({ where: { expiresAt: { lt: new Date(now.getTime() - 30 * 86400000) } } });
-  logger.info("maintenance_run", { erased, sessions: sessions.count, tokens: tokens.count, memories: memories.count });
-  return NextResponse.json({ erasedAccounts: erased, purgedSessions: sessions.count, purgedResetTokens: tokens.count, purgedExpiredMemories: memories.count });
+  const rateLimits = await purgeExpiredRateLimits(now);
+  logger.info("maintenance_run", { erased, sessions: sessions.count, tokens: tokens.count, memories: memories.count, rateLimits });
+  return NextResponse.json({ erasedAccounts: erased, purgedSessions: sessions.count, purgedResetTokens: tokens.count, purgedExpiredMemories: memories.count, purgedRateLimits: rateLimits });
 }
+
+export const GET = handler;
+export const POST = handler;

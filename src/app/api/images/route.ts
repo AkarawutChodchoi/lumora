@@ -7,7 +7,7 @@ import { MAX_IMAGE_BYTES, storeImage } from "@/server/services/images";
 /** Upload one image (multipart field "file"). Returns its URL for use as an avatar. */
 export const POST = route(async (req: Request) => {
   const user = await requireActiveUser();
-  rateLimit(`image-upload:${user.id}`, 30, 60 * 60 * 1000);
+  await rateLimit(`image-upload:${user.id}`, 30, 60 * 60 * 1000);
   const len = Number(req.headers.get("content-length") ?? 0);
   if (len > MAX_IMAGE_BYTES + 64_000) throw new AppError("bad_request", "Image is too large (max 1.5 MB after resizing)");
   const form = await req.formData().catch(() => null);

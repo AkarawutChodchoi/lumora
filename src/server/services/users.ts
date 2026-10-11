@@ -120,6 +120,8 @@ export async function changePassword(user: User, input: z.infer<typeof changePas
     throw new AppError("validation_failed", "Current password is incorrect");
   }
   await db.user.update({ where: { id: user.id }, data: { passwordHash: await hashPassword(input.newPassword) } });
+  // A reset link requested before the change must not be able to undo it.
+  await db.passwordResetToken.updateMany({ where: { userId: user.id, usedAt: null }, data: { usedAt: new Date() } });
   await revokeAllSessions(user.id);
 }
 
@@ -144,14 +146,20 @@ export async function requestPasswordReset(email: string) {
 }
 
 export async function confirmPasswordReset(input: z.infer<typeof resetConfirmSchema>) {
-  const row = await db.passwordResetToken.findUnique({ where: { tokenHash: hashToken(input.token) } });
-  if (!row || row.usedAt || row.expiresAt <= new Date()) {
-    throw new AppError("validation_failed", "This reset link is invalid or has expired");
-  }
-  await db.$transaction([
-    db.passwordResetToken.update({ where: { id: row.id }, data: { usedAt: new Date() } }),
-    db.user.update({ where: { id: row.userId }, data: { passwordHash: await hashPassword(input.newPassword) } }),
-  ]);
+  const invalid = () => new AppError("validation_failed", "This reset link is invalid or has expired");
+  const tokenHash = hashToken(input.token);
+  const row = await db.passwordResetToken.findUnique({ where: { tokenHash } });
+  if (!row || row.usedAt || row.expiresAt <= new Date()) throw invalid();
+  const passwordHash = await hashPassword(input.newPassword);
+  await db.$transaction(async (tx) => {
+    // Claim the token atomically so two concurrent requests cannot both use it.
+    const now = new Date();
+    const claimed = await tx.passwordResetToken.updateMany({ where: { tokenHash, usedAt: null, expiresAt: { gt: now } }, data: { usedAt: now } });
+    if (claimed.count !== 1) throw invalid();
+    await tx.user.update({ where: { id: row.userId }, data: { passwordHash } });
+    // Any other outstanding reset links for this account stop working too.
+    await tx.passwordResetToken.updateMany({ where: { userId: row.userId, usedAt: null }, data: { usedAt: now } });
+  });
   await revokeAllSessions(row.userId);
 }
 
