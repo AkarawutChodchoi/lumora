@@ -10,7 +10,7 @@ import { priceOf } from "../ai/models";
 import { getProvider, routeModel } from "../ai/registry";
 import { ProviderError, type ChatTurn, type TokenUsage } from "../ai/types";
 import { canSeeRating, parseSnapshot } from "./characters";
-import { applyLedgerEntry, postLedgerEntry } from "./credits";
+import { applyLedgerEntry } from "./credits";
 import { recordUserStatedMemories, retrieveMemories } from "./memory";
 import { moderateText, SELF_HARM_RESOURCES } from "./moderation";
 import { getAiSettings, getFeatureFlags } from "./settings";
@@ -22,9 +22,14 @@ import { toClientMessage, type ClientMessage } from "./conversations";
 // Regenerate / edit never rewrite history: the replaced messages are marked
 // isActive = false and new ones are appended with higher sequence numbers.
 //
+// Moderation before exposure: the provider's text is buffered in memory and checked
+// by moderateText before anything is sent to the client or saved where a client can
+// read it (listMessages). Until then the reply's content stays empty.
+//
 // Credits: the cost is charged up-front inside the same transaction that
 // creates the messages (atomic, idempotent per generation), and refunded if
-// the generation fails, is blocked, or is cancelled before producing any text.
+// the generation fails, is blocked, or is cancelled before the reply was delivered.
+// Every final outcome is settled in one transaction (see settle).
 //
 // Client disconnects do NOT cancel generation: the reply keeps generating and
 // is saved, so it appears when the user returns. Only an explicit cancel stops it.
@@ -42,7 +47,6 @@ export const STALE_LOCK_MS = 75 * 1000;
 // A worker polls for cancel requests every second; if it has not finished a cancel
 // after this long, it is gone and the cancel is completed on its behalf.
 const CANCEL_GRACE_MS = 4000;
-const PERSIST_EVERY_MS = 800;
 // Stop streaming before the host's 60s limit kills the function, so the reply is saved
 // (partial text kept, or a refund) instead of being left half-finished.
 export const GENERATION_DEADLINE_MS = 48 * 1000;
@@ -176,37 +180,61 @@ async function releaseLock(conversationId: string, generationId: string) {
   await db.conversation.updateMany({ where: { id: conversationId, activeGenerationId: generationId }, data: { activeGenerationId: null } });
 }
 
-async function refund(userId: string, generationId: string, cost: number) {
-  if (cost <= 0) return;
-  await postLedgerEntry({
-    userId,
-    delta: cost,
-    type: "generation_refund",
-    idempotencyKey: `gen:${generationId}:refund`,
-    referenceType: "generation",
-    referenceId: generationId,
+interface Outcome {
+  generation: Prisma.GenerationUpdateManyMutationInput;
+  message: Prisma.MessageUpdateManyMutationInput;
+  /** "full" gives back the whole charge; a number gives back that many coins (cheaper fallback model). */
+  refund?: "full" | number;
+  /** Bump the conversation in the chat list (a delivered reply). */
+  touchConversation?: boolean;
+}
+
+/** Test-only fault injection point inside the settle transaction (after the claim). */
+export const settleTestHooks: { afterClaim?: () => void | Promise<void> } = {};
+
+/**
+ * Settle a running generation in ONE transaction: claim the final status, update the
+ * reply, post the refund and free the conversation. Only one of the worker, a cancel and
+ * the stale reaper can win the claim (the conditional update locks the row, so a second
+ * settle waits and then matches nothing). A crash part-way rolls everything back, leaving
+ * the generation running for the stale reaper to settle — never charged with no reply.
+ */
+async function settle(generationId: string, outcome: Outcome, from: string[] = RUNNING): Promise<boolean> {
+  return db.$transaction(async (tx) => {
+    const claimed = await tx.generation.updateMany({ where: { id: generationId, status: { in: from } }, data: { ...outcome.generation, completedAt: new Date() } });
+    if (claimed.count !== 1) return false;
+    await settleTestHooks.afterClaim?.();
+    const gen = await tx.generation.findUniqueOrThrow({ where: { id: generationId }, select: { userId: true, conversationId: true, costCoins: true } });
+    await tx.message.updateMany({ where: { generationId, role: "assistant" }, data: outcome.message });
+    const amount = outcome.refund === "full" ? gen.costCoins : (outcome.refund ?? 0);
+    if (amount > 0) {
+      await applyLedgerEntry(tx, {
+        userId: gen.userId,
+        delta: amount,
+        type: "generation_refund",
+        idempotencyKey: `gen:${generationId}:${outcome.refund === "full" ? "refund" : "fallback"}`,
+        referenceType: "generation",
+        referenceId: generationId,
+      });
+    }
+    await tx.conversation.updateMany({ where: { id: gen.conversationId, activeGenerationId: generationId }, data: { activeGenerationId: null } });
+    if (outcome.touchConversation) await tx.conversation.update({ where: { id: gen.conversationId }, data: { lastMessageAt: new Date() } });
+    return true;
   });
 }
 
-/**
- * Claim a running generation for one final outcome. Only one of the worker, a cancel and
- * the stale reaper can win, so a reply is never both delivered and refunded.
- */
-async function claimFinal(generationId: string, data: Prisma.GenerationUpdateManyMutationInput, from: string[] = RUNNING) {
-  const res = await db.generation.updateMany({ where: { id: generationId, status: { in: from } }, data: { ...data, completedAt: new Date() } });
-  return res.count === 1;
-}
-
-async function failGeneration(generationId: string, userId: string, conversationId: string, code: string, messageId: string | null, content?: string) {
-  if (!(await claimFinal(generationId, { status: "failed", errorCode: code }))) return false;
-  const gen = await db.generation.findUniqueOrThrow({ where: { id: generationId }, select: { costCoins: true } });
-  const data = { status: "failed", errorCode: code, ...(content !== undefined ? { content } : {}) };
-  if (messageId) await db.message.update({ where: { id: messageId }, data });
-  else await db.message.updateMany({ where: { generationId, status: { in: ["pending", "streaming"] } }, data });
-  await refund(userId, generationId, gen.costCoins);
-  await releaseLock(conversationId, generationId);
-  return true;
-}
+// Failed and cancelled replies never keep their text: it was not delivered, and
+// unreviewed text must not become readable later.
+const failed = (code: string): Outcome => ({
+  generation: { status: "failed", errorCode: code },
+  message: { content: "", status: "failed", errorCode: code },
+  refund: "full",
+});
+const cancelled = (data: Prisma.GenerationUpdateManyMutationInput = {}): Outcome => ({
+  generation: { status: "cancelled", ...data },
+  message: { content: "", status: "cancelled", isActive: false },
+  refund: "full",
+});
 
 /** Build the provider prompt from the pinned character version, memories and active history. */
 async function buildContext(user: User, p: Prepared) {
@@ -286,7 +314,8 @@ export async function runGeneration(user: User, p: Prepared, emit: (e: ChatStrea
   try {
     const { settings, prompt } = await buildContext(user, p);
     await db.generation.updateMany({ where: { id: p.generationId, status: "pending" }, data: { status: "streaming", provider: provider.name } });
-    await db.message.update({ where: { id: p.assistantMessageId }, data: { status: "streaming" } });
+    // Conditional: never overwrite an outcome a cancel or the reaper already settled.
+    await db.message.updateMany({ where: { id: p.assistantMessageId, status: "pending" }, data: { status: "streaming" } });
 
     // Poll for cancel requests (works across server instances, even before the first token).
     cancelPoll = setInterval(() => {
@@ -299,7 +328,6 @@ export async function runGeneration(user: User, p: Prepared, emit: (e: ChatStrea
         .catch(() => {});
     }, 1000);
 
-    let lastPersist = Date.now();
     try {
       for await (const ev of provider.stream({
         model: p.model,
@@ -311,13 +339,8 @@ export async function runGeneration(user: User, p: Prepared, emit: (e: ChatStrea
         signal: controller.signal,
       })) {
         if (ev.type === "text") {
+          // Buffered only: nothing is streamed or saved before moderation below.
           text += ev.text;
-          send({ type: "delta", text: ev.text });
-          if (Date.now() - lastPersist > PERSIST_EVERY_MS) {
-            lastPersist = Date.now();
-            // Persist partial text so a crash or disconnect never loses the whole reply.
-            await db.message.update({ where: { id: p.assistantMessageId }, data: { content: text } });
-          }
         } else {
           usage = ev.usage;
           stopReason = ev.stopReason;
@@ -336,59 +359,46 @@ export async function runGeneration(user: User, p: Prepared, emit: (e: ChatStrea
     if (mod.action === "block") throw new ProviderError("content_policy", mod.userMessage ?? "The reply was withheld by the content policy.");
     if (!text.trim()) throw new ProviderError("provider", "The AI returned an empty reply");
 
-    const won = await claimFinal(p.generationId, {
-      status: "completed",
-      model: servedModel,
-      inputTokens: provider.capabilities.realUsage ? usage?.inputTokens : null,
-      outputTokens: provider.capabilities.realUsage ? usage?.outputTokens : null,
-      latencyMs: Date.now() - started,
-      errorCode: stopReason === "max_tokens" ? "truncated" : null,
+    // Moderation passed: save, settle and deliver the reply in one step.
+    await settle(p.generationId, {
+      generation: {
+        status: "completed",
+        model: servedModel,
+        inputTokens: provider.capabilities.realUsage ? usage?.inputTokens : null,
+        outputTokens: provider.capabilities.realUsage ? usage?.outputTokens : null,
+        latencyMs: Date.now() - started,
+        errorCode: stopReason === "max_tokens" ? "truncated" : null,
+      },
+      message: { content: text, status: "completed", flagged: mod.action === "flag" },
+      refund: fallbackRefund(p.model, p.cost, servedModel),
+      touchConversation: true,
     });
-    if (!won) {
-      // Already closed out elsewhere (stale reaper); its outcome stands.
-      const current = await db.message.findUniqueOrThrow({ where: { id: p.assistantMessageId } });
-      send({ type: "done", message: toClientMessage(current), balance: await balanceOf(user.id) });
-      return;
-    }
-    const msg = await db.message.update({
-      where: { id: p.assistantMessageId },
-      data: { content: text, status: "completed", flagged: mod.action === "flag" },
-    });
-    await releaseLock(p.conversationId, p.generationId);
-    await db.conversation.update({ where: { id: p.conversationId }, data: { lastMessageAt: new Date() } });
-    await refundFallbackDifference(user.id, p, servedModel);
+    // If a cancel or the stale reaper settled it first, its outcome stands.
+    const msg = await db.message.findUniqueOrThrow({ where: { id: p.assistantMessageId } });
     send({ type: "done", message: toClientMessage(msg), balance: await balanceOf(user.id) });
   } catch (err) {
     const pe = err instanceof ProviderError ? err : null;
     if (!pe) logger.error("generation_failed", { generationId: p.generationId, error: err instanceof Error ? err.message : "unknown" });
     else logger.warn("generation_provider_error", { generationId: p.generationId, kind: pe.kind });
 
-    if (pe?.kind === "cancelled") {
-      await finishCancelled(user.id, p, text, Date.now() - started);
+    const code = pe?.kind ?? "internal";
+    try {
+      // Policy: a cancel before the reply was delivered is free (nothing is shown until the end).
+      await settle(p.generationId, code === "cancelled" ? cancelled({ latencyMs: Date.now() - started }) : failed(code));
+    } catch (settleErr) {
+      // Nothing was committed; the stale reaper settles (and refunds) it later.
+      logger.error("generation_settle_failed", { generationId: p.generationId, error: settleErr instanceof Error ? settleErr.message : "unknown" });
+    }
+    if (code === "cancelled") {
       const msg = await db.message.findUniqueOrThrow({ where: { id: p.assistantMessageId } });
       send({ type: "done", message: toClientMessage(msg), balance: await balanceOf(user.id) });
       return;
     }
-    const code = pe?.kind ?? "internal";
-    // Content-policy failures discard the partial text; other failures keep it for context.
-    await failGeneration(p.generationId, user.id, p.conversationId, code, p.assistantMessageId, code === "content_policy" ? "" : text);
     send({ type: "error", code, message: pe?.message ?? "Something went wrong while generating the reply.", balance: await balanceOf(user.id) });
   } finally {
     clearInterval(cancelPoll);
     clearTimeout(deadline);
   }
-}
-
-async function finishCancelled(userId: string, p: Prepared, text: string, latencyMs: number) {
-  if (!(await claimFinal(p.generationId, { status: "cancelled", latencyMs }))) return;
-  const gen = await db.generation.findUniqueOrThrow({ where: { id: p.generationId }, select: { costCoins: true } });
-  await db.message.update({ where: { id: p.assistantMessageId }, data: { content: text, status: text.trim() ? "completed" : "cancelled" } });
-  // Policy: cancelling before any text is produced is free.
-  if (!text.trim()) {
-    await db.message.update({ where: { id: p.assistantMessageId }, data: { isActive: false } });
-    await refund(userId, p.generationId, gen.costCoins);
-  }
-  await releaseLock(p.conversationId, p.generationId);
 }
 
 /** Coins to give back when a cheaper model served the reply (never negative). */
@@ -398,51 +408,25 @@ export function fallbackRefund(chargedModel: string, charged: number, servedMode
   return served === null ? 0 : Math.max(0, charged - served);
 }
 
-/**
- * When the chosen model was out of quota and a cheaper one answered instead,
- * give back the price difference (idempotent per generation).
- */
-async function refundFallbackDifference(userId: string, p: Prepared, servedModel: string) {
-  const diff = fallbackRefund(p.model, p.cost, servedModel);
-  if (diff <= 0) return;
-  await postLedgerEntry({
-    userId,
-    delta: diff,
-    type: "generation_refund",
-    idempotencyKey: `gen:${p.generationId}:fallback`,
-    referenceType: "generation",
-    referenceId: p.generationId,
-  });
-}
-
 async function balanceOf(userId: string) {
   return (await db.creditAccount.findUnique({ where: { userId } }))?.balance ?? 0;
 }
 
 /**
- * Close out a generation whose worker is gone: keep any partial text (charged, it was
- * delivered) or, with no text, mark it failed and refund. Always frees the conversation.
+ * Close out a generation whose worker is gone. Its reply was never delivered (and any
+ * text was never reviewed), so it is discarded and refunded. Always frees the conversation.
  */
 async function closeOut(generationId: string) {
   const gen = await db.generation.findUnique({ where: { id: generationId } });
   if (!gen || !RUNNING.includes(gen.status)) return;
-  const msg = await db.message.findFirst({ where: { generationId, role: "assistant" } });
-  if (msg?.content.trim()) {
-    if (await claimFinal(generationId, { status: "cancelled", errorCode: "stale" }, [gen.status])) {
-      await db.message.update({ where: { id: msg.id }, data: { status: "completed" } });
-    }
-    await releaseLock(gen.conversationId, generationId);
-  } else if (gen.status === "cancel_requested") {
-    // Stopped before any text: same outcome as a normal cancel (free, reply removed).
-    if (await claimFinal(generationId, { status: "cancelled" }, ["cancel_requested"])) {
-      if (msg) await db.message.update({ where: { id: msg.id }, data: { status: "cancelled", isActive: false } });
-      await refund(gen.userId, generationId, gen.costCoins);
-    }
-    await releaseLock(gen.conversationId, generationId);
+  if (gen.status === "cancel_requested") {
+    // Same outcome as a normal cancel (free, reply removed).
+    await settle(generationId, cancelled(), ["cancel_requested"]);
   } else {
-    const failed = await failGeneration(generationId, gen.userId, gen.conversationId, "stale", msg?.id ?? null);
-    if (failed && msg) await db.message.update({ where: { id: msg.id }, data: { isActive: false } });
+    const stale = failed("stale");
+    await settle(generationId, { ...stale, message: { ...stale.message, isActive: false } }, [gen.status]);
   }
+  await releaseLock(gen.conversationId, generationId);
   logger.warn("generation_closed_out", { generationId, previous: gen.status });
 }
 

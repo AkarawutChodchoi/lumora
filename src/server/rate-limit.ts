@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import { db } from "./db";
 import { AppError } from "./errors";
 import { logger } from "./logger";
@@ -28,11 +29,26 @@ function hashKey(key: string) {
   return createHash("sha256").update(key).digest("hex");
 }
 
+// Raw SQL is not schema-qualified by Prisma, and Neon's pooler ignores the URL's
+// schema for search_path, so an unqualified table name would hit "public" (production)
+// from the dev and test schemas. Qualify it with the schema from DATABASE_URL.
+function bucketTable() {
+  let schema = "public";
+  try {
+    schema = new URL(process.env.DATABASE_URL ?? "").searchParams.get("schema") || "public";
+  } catch {
+    /* not a URL — keep the default */
+  }
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(schema)) throw new Error("Invalid database schema name");
+  return Prisma.raw(`"${schema}"."RateLimitBucket"`);
+}
+
 /** One atomic upsert: starts a new window when the old one has ended, otherwise counts this hit. */
 async function hitDb(key: string, now: Date, windowMs: number) {
   const fresh = new Date(now.getTime() + windowMs);
+  const table = bucketTable();
   const rows = await db.$queryRaw<{ count: number; resetAt: Date }[]>`
-    INSERT INTO "RateLimitBucket" ("key", "count", "resetAt") VALUES (${key}, 1, ${fresh})
+    INSERT INTO ${table} AS "RateLimitBucket" ("key", "count", "resetAt") VALUES (${key}, 1, ${fresh})
     ON CONFLICT ("key") DO UPDATE SET
       "count" = CASE WHEN "RateLimitBucket"."resetAt" <= ${now} THEN 1 ELSE "RateLimitBucket"."count" + 1 END,
       "resetAt" = CASE WHEN "RateLimitBucket"."resetAt" <= ${now} THEN EXCLUDED."resetAt" ELSE "RateLimitBucket"."resetAt" END

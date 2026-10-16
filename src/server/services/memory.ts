@@ -199,7 +199,17 @@ export async function memoryUsage(userId: string, characterId: string, now = new
   return active.reduce((n, m) => n + m.content.length, 0);
 }
 
-const words = (s: string) => new Set(s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 2));
+// Thai is written without spaces, so split on word boundaries (ICU dictionary) instead of
+// non-letters. Thai words are short in code units ("นก", "ปู"), so they need only 2.
+const segmenter = new Intl.Segmenter("th", { granularity: "word" });
+const THAI = /\p{Script=Thai}/u;
+export const words = (s: string) =>
+  new Set(
+    [...segmenter.segment(s.toLowerCase())]
+      .filter((seg) => seg.isWordLike)
+      .map((seg) => seg.segment)
+      .filter((w) => w.length > 2 || (THAI.test(w) && w.length >= 2)),
+  );
 
 /**
  * Relevance-ranked retrieval for one user + character. The (userId, characterId)

@@ -31,7 +31,8 @@ describe("chat pipeline", () => {
     setProviderOverride(new MockProvider(["Hi ", "traveler"]));
     const { user, conv } = await setup();
     const { events } = await send(user, conv.id);
-    expect(events.map((e) => e.type)).toEqual(["start", "delta", "delta", "done"]);
+    // The reply is moderated as a whole before delivery, so it arrives in the done event.
+    expect(events.map((e) => e.type)).toEqual(["start", "done"]);
     const { items } = await listMessages(user, conv.id, { limit: 30 });
     expect(items.map((m) => [m.sequence, m.role, m.status])).toEqual([
       [1, "assistant", "completed"],

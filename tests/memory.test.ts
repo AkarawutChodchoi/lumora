@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { db } from "@/server/db";
-import { addMemory, deleteMemory, extractMemories, listMemories, recordUserStatedMemories, renderMemory, retrieveMemories } from "@/server/services/memory";
+import { addMemory, deleteMemory, extractMemories, listMemories, recordUserStatedMemories, renderMemory, retrieveMemories, words } from "@/server/services/memory";
 import { makeCharacter, makeUser } from "./helpers";
 
 describe("memory extraction", () => {
@@ -101,5 +101,16 @@ describe("memory storage and retrieval", () => {
     await addMemory(u, character.id, { type: "preference", content: "The user dislikes loud music", importance: 2 });
     const r = await retrieveMemories(u.id, character.id, "show me the telescopes tonight");
     expect(r[0].content).toContain("telescopes");
+  });
+
+  it("matches Thai words even though Thai has no spaces", async () => {
+    expect([...words("ฉันชอบแมวสีส้มมาก")]).toEqual(expect.arrayContaining(["ชอบ", "แมว", "ส้ม"]));
+    const { character } = await setup();
+    const u = await makeUser();
+    // Later memory is newer, so without word matching it would rank first.
+    await addMemory(u, character.id, { type: "preference", content: "ผู้ใช้ชอบแมวสีส้ม", importance: 2 });
+    await addMemory(u, character.id, { type: "preference", content: "ผู้ใช้ไม่ชอบเสียงดัง", importance: 2 });
+    const r = await retrieveMemories(u.id, character.id, "เล่าเรื่องแมวให้ฟังหน่อย");
+    expect(r[0].content).toContain("แมว");
   });
 });

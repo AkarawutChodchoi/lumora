@@ -29,12 +29,14 @@ describe("replies whose worker died", () => {
     expect(items.some((m) => m.status === "pending" || m.status === "streaming")).toBe(false);
   });
 
-  it("keeps partial text when stopped after some of the reply arrived", async () => {
+  it("discards unreviewed partial text when stopped, and the stop is free", async () => {
     const { user, conv, p } = await deadReply();
     await db.message.update({ where: { id: p.assistantMessageId }, data: { content: "Half a reply", status: "streaming" } });
     await cancelGeneration(user, p.generationId);
-    const last = (await listMessages(user, conv.id, { limit: 30 })).items.at(-1)!;
-    expect(last).toMatchObject({ content: "Half a reply", status: "completed" });
+    const items = (await listMessages(user, conv.id, { limit: 30 })).items;
+    expect(items.some((m) => m.content === "Half a reply")).toBe(false);
+    expect((await db.message.findUniqueOrThrow({ where: { id: p.assistantMessageId } })).content).toBe("");
+    expect(await getBalance(user.id)).toBe(SIGNUP_BONUS);
     expect((await getOwnedConversation(user, conv.id)).activeGenerationId).toBeNull();
   });
 
