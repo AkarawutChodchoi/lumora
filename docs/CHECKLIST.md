@@ -26,7 +26,7 @@ Legend: ✅ done and tested · 🟡 done with limitations · ⬜ not started
 | Chat model picker with per-model prices | ✅ | `src/server/ai/models.ts`. Gemini Flash-Lite 5 / 3.5 Flash 8 / 3.8 Flash 12 coins; Gemini Pro 30 (needs `AI_PAID_MODELS=true`); Claude Haiku 10 / Sonnet 20 / Opus 40 (needs `ANTHROPIC_API_KEY`). Saved per user (`User.chatModel`). If a cheaper fallback model answers, the difference is refunded |
 | Reply style preference (short / balanced / detailed) | ✅ | `User.responseStyle`, added to the prompt as a separate non-cached block |
 | Coin transparency | ✅ | Price list on the Coins page, balance + model chip under the chat box, ledger history |
-| Chats inbox | ✅ | Compact header; character notes only from the 10 most recently chatted characters |
+| Chats inbox | ✅ | Compact header; character notes only from the 10 most recently chatted characters, shown for 14 days. A note is written after 3 new messages, or after 1 new message once the note is a day old |
 | Tests | ✅ | 122 Vitest tests plus an HTTP smoke script |
 | CI | ✅ | `.github/workflows/ci.yml` (not run here: no GitHub remote) |
 | PostgreSQL + production deploy | ✅ | Neon (Singapore) + Vercel (sin1): https://lumora-nine-rose.vercel.app. Dev/test use `lumora_dev` / `lumora_test` schemas |

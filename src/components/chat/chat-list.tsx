@@ -19,7 +19,7 @@ export interface ChatListItem {
   character: { id: string; name: string; avatarUrl: string | null };
 }
 
-const NOTE_FRESH_MS = 3 * 24 * 60 * 60 * 1000;
+const NOTE_FRESH_MS = 14 * 24 * 60 * 60 * 1000;
 /** Notes come only from the characters the user talked to most recently. */
 const NOTE_CHARACTERS = 10;
 

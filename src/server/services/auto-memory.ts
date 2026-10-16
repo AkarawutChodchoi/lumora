@@ -16,6 +16,9 @@ import { getFeatureFlags } from "./settings";
 
 /** Review the chat after this many new user messages (saves free-tier quota). */
 export const SCAN_EVERY = 3;
+// A note older than this is refreshed after just one new message, so the chats
+// screen keeps showing current notes even when people chat only a little.
+export const NOTE_REFRESH_MS = 24 * 60 * 60 * 1000;
 const RECENT_TURNS = 12;
 const MAX_NEW = 3;
 
@@ -101,7 +104,8 @@ export async function maybeScanConversation(user: Pick<User, "id" | "memoryEnabl
   if (!conv || conv.userId !== user.id) return { scanned: false as const, reason: "not_found" };
 
   const pending = await db.message.count({ where: { conversationId, role: "user", isActive: true, sequence: { gt: conv.memoryScanSeq } } });
-  if (!opts.force && pending < SCAN_EVERY) return { scanned: false as const, reason: "not_enough_messages" };
+  const noteStale = conv.noteAt !== null && Date.now() - conv.noteAt.getTime() > NOTE_REFRESH_MS;
+  if (!opts.force && pending < SCAN_EVERY && !(noteStale && pending > 0)) return { scanned: false as const, reason: "not_enough_messages" };
 
   const recent = (
     await db.message.findMany({

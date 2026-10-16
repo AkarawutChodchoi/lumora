@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { db } from "@/server/db";
 import { setProviderOverride } from "@/server/ai/registry";
-import { cleanNote, maybeScanConversation, parseScan, SCAN_EVERY } from "@/server/services/auto-memory";
+import { cleanNote, maybeScanConversation, NOTE_REFRESH_MS, parseScan, SCAN_EVERY } from "@/server/services/auto-memory";
 import { enforceLimit, listMemories } from "@/server/services/memory";
 import { startConversation } from "@/server/services/conversations";
 import { prepareGeneration, runGeneration } from "@/server/services/chat";
@@ -44,6 +44,20 @@ describe("automatic memory scans", () => {
   it(`waits for ${SCAN_EVERY} new user messages before scanning`, async () => {
     const { user, conv } = await chatTimes(SCAN_EVERY - 1);
     setProviderOverride(new MockProvider(['{"memories":[],"note":"hi"}']));
+    expect(await maybeScanConversation(user, conv.id)).toMatchObject({ scanned: false, reason: "not_enough_messages" });
+  });
+
+  it("refreshes a day-old note after just one new message", async () => {
+    const { user, conv } = await chatTimes(1);
+    await db.conversation.update({ where: { id: conv.id }, data: { note: "old note", noteAt: new Date(Date.now() - NOTE_REFRESH_MS - 60_000) } });
+    setProviderOverride(new MockProvider(['{"memories":[],"note":"new note"}']));
+    expect(await maybeScanConversation(user, conv.id)).toMatchObject({ scanned: true });
+    expect((await db.conversation.findUniqueOrThrow({ where: { id: conv.id } })).note).toBe("new note");
+  });
+
+  it("keeps waiting when the note is still recent", async () => {
+    const { user, conv } = await chatTimes(1);
+    await db.conversation.update({ where: { id: conv.id }, data: { note: "fresh note", noteAt: new Date() } });
     expect(await maybeScanConversation(user, conv.id)).toMatchObject({ scanned: false, reason: "not_enough_messages" });
   });
 
