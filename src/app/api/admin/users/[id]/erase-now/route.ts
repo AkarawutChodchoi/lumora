@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { ok, parseJson, route } from "@/server/http";
-import { requirePermission } from "@/server/auth/guards";
-import { eraseNow } from "@/server/services/admin";
+import { ok, parseJson, route } from "@/lib/server/http";
+import { requirePermission } from "@/lib/server/access";
+import { eraseNow } from "@/lib/server/admin";
 
 type Ctx = { params: Promise<{ id: string }> };
 

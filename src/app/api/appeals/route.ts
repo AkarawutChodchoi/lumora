@@ -1,7 +1,7 @@
-import { ok, parseJson, route } from "@/server/http";
-import { requireUser } from "@/server/auth/guards";
-import { rateLimit } from "@/server/rate-limit";
-import { appealSchema, createAppeal, listMyEnforcements } from "@/server/services/reports";
+import { ok, parseJson, route } from "@/lib/server/http";
+import { requireUser } from "@/lib/server/access";
+import { rateLimit } from "@/lib/server/rateLimit";
+import { appealSchema, createAppeal, listMyEnforcements } from "@/lib/server/reports";
 
 export const GET = route(async () => ok({ items: await listMyEnforcements(await requireUser()) }));
 

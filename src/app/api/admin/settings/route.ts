@@ -1,7 +1,7 @@
-import { ok, parseJson, route } from "@/server/http";
+import { ok, parseJson, route } from "@/lib/server/http";
 import { z } from "zod";
-import { requirePermission } from "@/server/auth/guards";
-import { getAiSettings, getFeatureFlags, updateSettings } from "@/server/services/settings";
+import { requirePermission } from "@/lib/server/access";
+import { getAiSettings, getFeatureFlags, updateSettings } from "@/lib/server/settings";
 
 export const GET = route(async () => {
   await requirePermission("ai.configure");

@@ -1,6 +1,6 @@
-import { ok, route } from "@/server/http";
-import { requireUser } from "@/server/auth/guards";
-import { cancelAccountDeletion } from "@/server/services/users";
+import { ok, route } from "@/lib/server/http";
+import { requireUser } from "@/lib/server/access";
+import { cancelAccountDeletion } from "@/lib/server/users";
 
 export const POST = route(async () => {
   await cancelAccountDeletion(await requireUser());

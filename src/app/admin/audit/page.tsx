@@ -1,6 +1,6 @@
 import { PageHeader } from "@/components/ui/misc";
-import { pageStaff } from "@/server/auth/current";
-import { listAudit } from "@/server/services/admin";
+import { pageStaff } from "@/lib/server/access";
+import { listAudit } from "@/lib/server/admin";
 import { getLocale, getT, pageTitle } from "@/i18n/server";
 import { INTL_LOCALE } from "@/i18n/config";
 
@@ -26,7 +26,7 @@ export default async function AdminAudit() {
                 <td className="px-4 py-2 font-mono text-xs">{a.actorId ?? t.admin.characters.system}</td>
                 <td className="px-4 py-2 font-mono text-xs">{a.action}</td>
                 <td className="px-4 py-2 text-xs">{a.targetType}:{a.targetId}</td>
-                <td className="max-w-md truncate px-4 py-2 text-xs text-muted" title={a.details}>{a.details}</td>
+                <td className="max-w-md truncate px-4 py-2 text-xs text-muted" title={auditText(a)}>{auditText(a)}</td>
               </tr>
             ))}
             {items.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-faint">{T.empty}</td></tr>}
@@ -35,4 +35,13 @@ export default async function AdminAudit() {
       </div>
     </div>
   );
+}
+
+function auditText(a: { before: unknown; after: unknown; reason: string | null; ip: string | null }) {
+  const parts = [];
+  if (a.reason) parts.push(a.reason);
+  if (a.before !== null && a.before !== undefined) parts.push(`before ${JSON.stringify(a.before)}`);
+  if (a.after !== null && a.after !== undefined) parts.push(`after ${JSON.stringify(a.after)}`);
+  if (a.ip) parts.push(`ip ${a.ip}`);
+  return parts.join(" · ");
 }

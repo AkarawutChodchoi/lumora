@@ -22,14 +22,14 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         {toasts.map((toast) => (
           <div
             key={toast.id}
-            className={`pointer-events-auto flex max-w-md animate-fade-in items-start gap-2 rounded-xl border px-4 py-3 text-sm shadow-2xl backdrop-blur ${
-              toast.tone === "ok" ? "border-ok/30 bg-surface-2/95" : "border-danger/40 bg-surface-2/95"
+            className={`pointer-events-auto flex max-w-md animate-fade-in items-start gap-2 rounded-xl border px-4 py-3 text-sm font-medium shadow-2xl ${
+              toast.tone === "ok" ? "border-free/30 bg-free-bg text-free" : "border-danger/30 bg-danger-bg text-danger-soft"
             }`}
             role={toast.tone === "error" ? "alert" : "status"}
           >
-            {toast.tone === "ok" ? <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-ok" /> : <AlertTriangle className="mt-0.5 size-4 shrink-0 text-danger" />}
+            {toast.tone === "ok" ? <CheckCircle2 className="mt-0.5 size-4 shrink-0" /> : <AlertTriangle className="mt-0.5 size-4 shrink-0" />}
             <span>{toast.text}</span>
-            <button className="ml-2 text-faint hover:text-fg" onClick={() => setToasts((x) => x.filter((y) => y.id !== toast.id))} aria-label={t.common.dismiss}>
+            <button className="ml-2 opacity-70 hover:opacity-100" onClick={() => setToasts((x) => x.filter((y) => y.id !== toast.id))} aria-label={t.common.dismiss}>
               <X className="size-4" />
             </button>
           </div>

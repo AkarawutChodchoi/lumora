@@ -1,8 +1,8 @@
-import { ok, route } from "@/server/http";
-import { requireActiveUser } from "@/server/auth/guards";
-import { rateLimit } from "@/server/rate-limit";
-import { AppError } from "@/server/errors";
-import { MAX_IMAGE_BYTES, storeImage } from "@/server/services/images";
+import { ok, route } from "@/lib/server/http";
+import { requireActiveUser } from "@/lib/server/access";
+import { rateLimit } from "@/lib/server/rateLimit";
+import { AppError } from "@/lib/server/errors";
+import { MAX_IMAGE_BYTES, storeImage } from "@/lib/server/images";
 
 /** Upload one image (multipart field "file"). Returns its URL for use as an avatar. */
 export const POST = route(async (req: Request) => {

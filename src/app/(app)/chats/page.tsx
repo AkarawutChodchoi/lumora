@@ -2,8 +2,8 @@ import { MessageCircle } from "lucide-react";
 import { EmptyState, PageHeader } from "@/components/ui/misc";
 import { ChatList } from "@/components/chat/chat-list";
 import { ButtonLink } from "@/components/ui/button";
-import { pageUser } from "@/server/auth/current";
-import { listConversations } from "@/server/services/conversations";
+import { pageUser } from "@/lib/server/access";
+import { listConversations } from "@/lib/server/conversations";
 import { getT, pageTitle } from "@/i18n/server";
 
 export const generateMetadata = pageTitle("chats");

@@ -98,7 +98,7 @@ export function ImageUpload({
               type="button"
               onClick={() => input.current?.click()}
               disabled={busy}
-              className="inline-flex items-center gap-2 rounded-xl bg-accent px-3.5 py-2 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-xl bg-accent px-3.5 py-2 text-sm font-semibold text-on-accent hover:opacity-90 disabled:opacity-50"
             >
               <ImagePlus className="size-4" /> {busy ? t.form.uploading : preview ? t.form.changeImage : t.form.upload}
             </button>
@@ -109,7 +109,7 @@ export function ImageUpload({
             )}
           </div>
           <p className="text-xs text-faint">{t.form.imageTypes}</p>
-          <button type="button" onClick={() => setLinkMode((m) => !m)} className="inline-flex items-center gap-1 text-xs text-accent hover:underline">
+          <button type="button" onClick={() => setLinkMode((m) => !m)} className="inline-flex items-center gap-1 text-xs text-accent-ink hover:underline">
             <Link2 className="size-3.5" /> {linkMode ? t.form.useUpload : t.form.useLink}
           </button>
           {linkMode && (
@@ -120,7 +120,7 @@ export function ImageUpload({
               onChange={(e) => onChange(e.target.value)}
               placeholder="https://…"
               aria-label={t.form.useLink}
-              className="h-10 w-full rounded-xl border border-line bg-surface-2 px-3 text-base placeholder:text-faint focus:border-accent focus:outline-none sm:text-sm"
+              className="h-10 w-full rounded-xl border border-line bg-surface-2 px-3 text-base placeholder:text-faint focus:border-line3 focus:outline-none sm:text-sm"
             />
           )}
           {error && (

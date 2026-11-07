@@ -28,9 +28,11 @@ export function ChatList({ items }: { items: ChatListItem[] }) {
   const t = useT();
   const locale = useLocale();
   const [q, setQ] = useState("");
+  // one clock per render pass keeps relative times stable
+  const [now] = useState(() => Date.now());
 
   const when = (d: string) => {
-    const diff = Date.now() - new Date(d).getTime();
+    const diff = now - new Date(d).getTime();
     if (diff < 60_000) return t.chats.now;
     if (diff < 3_600_000) return t.chats.minutes(Math.floor(diff / 60_000));
     if (diff < 86_400_000) return t.chats.hours(Math.floor(diff / 3_600_000));
@@ -44,8 +46,8 @@ export function ChatList({ items }: { items: ChatListItem[] }) {
       .sort((a, b) => new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime())
       .filter((c) => (seen.has(c.character.id) ? false : (seen.add(c.character.id), true)))
       .slice(0, NOTE_CHARACTERS)
-      .filter((c) => c.note && c.noteAt && Date.now() - new Date(c.noteAt).getTime() < NOTE_FRESH_MS);
-  }, [items]);
+      .filter((c) => c.note && c.noteAt && now - new Date(c.noteAt).getTime() < NOTE_FRESH_MS);
+  }, [items, now]);
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -63,7 +65,7 @@ export function ChatList({ items }: { items: ChatListItem[] }) {
           onChange={(e) => setQ(e.target.value)}
           placeholder={t.chats.search}
           aria-label={t.chats.search}
-          className="h-10 w-full rounded-full border border-line bg-surface-2 pr-4 pl-10 text-base placeholder:text-faint focus:border-accent focus:outline-none sm:text-sm"
+          className="h-10 w-full rounded-full border border-line bg-surface-2 pr-4 pl-10 text-base placeholder:text-faint focus:border-line3 focus:outline-none sm:text-sm"
         />
         </div>
       </div>
@@ -103,7 +105,7 @@ export function ChatList({ items }: { items: ChatListItem[] }) {
                 <div className="min-w-0 flex-1">
                   <p className="flex items-center gap-1.5 truncate font-semibold">
                     {c.title}
-                    {c.pinned && <Pin className="size-3.5 shrink-0 text-accent" aria-label={t.chat.pinned} />}
+                    {c.pinned && <Pin className="size-3.5 shrink-0 text-accent-ink" aria-label={t.chat.pinned} />}
                   </p>
                   <p className="flex min-w-0 items-center gap-1 text-sm text-muted">
                     <span className="truncate">

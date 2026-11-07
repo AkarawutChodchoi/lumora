@@ -1,223 +1,393 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { Coins, Gift, Crown, Check, Receipt } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Badge, Card, EmptyState } from "@/components/ui/misc";
+import { useEffect, useState, type ReactNode } from "react";
+import { AlertTriangle, Crown, Download, Gift, QrCode } from "lucide-react";
 import { useToast } from "@/components/ui/toast";
+import { CoinIcon } from "@/components/layout/site-chrome";
 import { api, errorMessage } from "@/lib/api";
 import { useLocale, useT } from "@/i18n/client";
 import { INTL_LOCALE } from "@/i18n/config";
+import { createPayment, getPayment, type PaymentView } from "@/lib/server/payments/actions";
 
-interface LedgerRow {
-  id: string;
-  delta: number;
-  balanceAfter: number;
-  type: string;
-  note: string | null;
-  createdAt: string;
+type Pack = { id: string; price: number; coins: number; bonus: number; tag?: string };
+type Plan = { id: string; name: string; days: number; price: number; tag?: string; coins: number };
+
+const card = "rounded-2xl border border-line bg-card";
+
+function Countdown({ until, onExpire, label, warn }: { until: number; onExpire: () => void; label: string; warn: string }) {
+  const [left, setLeft] = useState(() => Math.max(0, Math.round((until - Date.now()) / 1000)));
+  useEffect(() => {
+    if (left <= 0) {
+      onExpire();
+      return;
+    }
+    const t = setTimeout(() => setLeft(Math.max(0, Math.round((until - Date.now()) / 1000))), 1000);
+    return () => clearTimeout(t);
+  }, [left, until, onExpire]);
+  const mm = String(Math.floor(left / 60)).padStart(2, "0");
+  const ss = String(left % 60).padStart(2, "0");
+  return (
+    <div role="timer" aria-live="off" className="rounded-[10px] bg-danger-bg px-3 py-2.5 text-center text-[13px] leading-normal text-danger-soft">
+      {label}{" "}
+      <b className="font-display text-base tabular-nums">
+        {mm}:{ss}
+      </b>{" "}
+      · {warn}
+    </div>
+  );
 }
 
 export function CoinsCenter(props: {
-  balance: number;
+  wallet: { paid: number; bonus: number };
   dailyClaimed: boolean;
   dailyEnabled: boolean;
+  dailyAmount: number;
   paymentsEnabled: boolean;
-  packages: { id: string; coins: number; priceMinor: number; currency: string }[];
-  plans: Record<string, { name: string; priceMinor: number; currency: string; perks: string[] }>;
-  plan: string;
-  subscription: { status: string; currentPeriodEnd: string } | null;
-  ledger: LedgerRow[];
-  nextCursor: string | null;
+  mockPayments: boolean;
+  packs: Pack[];
+  plans: Plan[];
+  plusUntil: string | null;
+  payments: PaymentView[];
   models: { id: string; label: string; blurb: string; cost: number }[];
 }) {
   const t = useT();
+  const P = t.pay;
   const locale = useLocale();
-  const price = (minor: number, currency: string) => new Intl.NumberFormat(INTL_LOCALE[locale], { style: "currency", currency }).format(minor / 100);
+  const L = INTL_LOCALE[locale];
+  const num = (n: number) => n.toLocaleString(L);
   const router = useRouter();
   const toast = useToast();
-  const [balance, setBalance] = useState(props.balance);
+
+  const [wallet, setWallet] = useState(props.wallet);
   const [claimed, setClaimed] = useState(props.dailyClaimed);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [ledger, setLedger] = useState(props.ledger);
-  const [cursor, setCursor] = useState(props.nextCursor);
+  const [busy, setBusy] = useState(false);
+  const [product, setProduct] = useState(props.packs.find((p) => p.tag)?.id ?? props.packs[0]?.id);
+  const [live, setLive] = useState<PaymentView | null>(null);
+  // render-stable clock for "is this still pending?" checks
+  const [now] = useState(() => Date.now());
+
+  const pack = props.packs.find((p) => p.id === product);
+  const plan = props.plans.find((p) => p.id === product);
+  const price = pack?.price ?? plan?.price ?? 0;
+  const pendingOld = props.payments.find((p) => p.status === "pending" && p.expiresAt > now - 30 * 60_000);
+  const resultUrl = (id: string) => `/coins/result?tx=${encodeURIComponent(id)}`;
 
   async function claim() {
-    setBusy("daily");
+    setBusy(true);
     try {
       const r = await api<{ granted: number; balance: number }>("/api/credits/daily", { method: "POST" });
-      setBalance(r.balance);
+      setWallet((w) => ({ ...w, bonus: w.bonus + r.granted }));
       setClaimed(true);
       toast.success(t.coins.added(r.granted));
       router.refresh();
     } catch (e) {
       toast.error(errorMessage(e));
     } finally {
-      setBusy(null);
+      setBusy(false);
     }
   }
 
-  async function buy(productId: string) {
-    setBusy(productId);
+  async function pay() {
+    if (!product) return;
+    setBusy(true);
     try {
-      const r = await api<{ url: string }>("/api/billing/checkout", { method: "POST", body: { productId } });
-      window.location.href = r.url;
-    } catch (e) {
-      toast.error(errorMessage(e));
-      setBusy(null);
+      const r = await createPayment({ productId: product });
+      if (!r.ok) {
+        toast.error(r.error === "rate" ? P.rate : r.error === "auth" ? t.common.genericError : P.gateway);
+        return;
+      }
+      setLive(r.payment);
+    } catch {
+      toast.error(P.gateway);
+    } finally {
+      setBusy(false);
     }
   }
 
-  async function more() {
-    if (!cursor) return;
-    try {
-      const r = await api<{ items: LedgerRow[]; nextCursor: string | null }>(`/api/credits/ledger?cursor=${cursor}`);
-      setLedger((l) => [...l, ...r.items]);
-      setCursor(r.nextCursor);
-    } catch (e) {
-      toast.error(errorMessage(e));
-    }
+  // watch the payment while its QR is on screen; the server settles it with the gateway
+  useEffect(() => {
+    if (!live) return;
+    const id = live.id;
+    const timer = setInterval(async () => {
+      const p = await getPayment(id).catch(() => null);
+      if (p && p.status !== "pending") {
+        clearInterval(timer);
+        router.push(resultUrl(id));
+      }
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [live, router]);
+
+  function saveQr() {
+    if (!live?.qr) return;
+    const a = document.createElement("a");
+    a.href = live.qr;
+    a.download = `lumora-qr-${live.id}.png`;
+    a.click();
+    toast.success(P.saved);
   }
 
-  const premium = { ...props.plans.premium, ...t.plans.premium };
+  const fmtDate = (ms: number) => new Date(ms).toLocaleString(L, { dateStyle: "medium", timeStyle: "short" });
+  const statusColor: Record<PaymentView["status"], string> = {
+    paid: "text-free",
+    pending: "text-accent-ink",
+    failed: "text-danger",
+    expired: "text-danger",
+    mismatch: "text-warn",
+    refunded: "text-muted",
+  };
+  const itemLabel = (p: PaymentView) => {
+    if (p.kind === "membership") return props.plans.find((x) => x.id === p.productId)?.name ?? "Lumora Plus";
+    return `${num(p.coins + p.bonus)} ${P.coins}`;
+  };
 
   return (
-    <div className="space-y-10">
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card className="relative overflow-hidden p-6">
-          <div className="absolute -top-16 -right-16 size-48 rounded-full bg-warn/10 blur-2xl" aria-hidden="true" />
-          <p className="text-sm text-muted">{t.coins.balance}</p>
-          <p className="mt-1 flex items-center gap-2 font-display text-3xl font-extrabold break-all tabular-nums sm:text-4xl">
-            <Coins className="size-8 text-warn" /> {balance.toLocaleString(INTL_LOCALE[locale])}
-          </p>
-          <p className="mt-2 text-xs text-faint">{t.coins.balanceNote}</p>
-        </Card>
-        <Card className="flex flex-col justify-between gap-4 p-6">
+    <div className="flex flex-col gap-7 lg:flex-row">
+      <div className="flex min-w-0 flex-1 flex-col gap-7">
+        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
-            <p className="flex items-center gap-2 font-semibold">
-              <Gift className="size-5 text-accent" /> {t.coins.daily}
-            </p>
-            <p className="mt-1 text-sm text-muted">{t.coins.dailySub}</p>
+            <h1 className="font-display text-[28px] font-bold md:text-[34px]">{P.title}</h1>
+            <p className="mt-1.5 text-sm text-muted">{P.subtitle}</p>
           </div>
-          <Button onClick={claim} loading={busy === "daily"} disabled={claimed || !props.dailyEnabled} variant={claimed ? "secondary" : "primary"}>
-            {!props.dailyEnabled ? t.coins.dailyUnavailable : claimed ? t.coins.dailyClaimed : t.coins.dailyClaim}
-          </Button>
-        </Card>
-      </div>
-
-      {props.models.length > 0 && (
-        <section aria-labelledby="prices">
-          <h2 id="prices" className="font-display text-lg font-bold">{t.coins.prices}</h2>
-          <p className="mb-3 text-sm text-muted">{t.coins.pricesSub}</p>
-          <Card className="divide-y divide-line">
-            {props.models.map((m) => (
-              <div key={m.id} className="flex items-center justify-between gap-3 px-4 py-3">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold">{m.label}</p>
-                  <p className="truncate text-xs text-faint">{t.chat.models[m.blurb] ?? ""}</p>
-                </div>
-                <span className="flex shrink-0 items-center gap-1 text-sm font-semibold tabular-nums">
-                  <Coins className="size-4 text-warn" /> {t.chat.perReply(m.cost)}
-                </span>
-              </div>
-            ))}
-          </Card>
-        </section>
-      )}
-
-      {!props.paymentsEnabled && (
-        <p className="rounded-xl border border-warn/30 bg-warn/10 px-4 py-3 text-sm text-warn" role="status">
-          {t.coins.paymentsOff}
-        </p>
-      )}
-
-      <section>
-        <h2 className="mb-4 font-display text-lg font-bold">{t.coins.packs}</h2>
-        <div className="grid gap-4 sm:grid-cols-3">
-          {props.packages.map((p, i) => (
-            <Card key={p.id} className={`flex flex-col p-5 ${i === 1 ? "border-accent/60" : ""}`}>
-              {i === 1 && <Badge tone="accent" className="mb-3 self-start">{t.coins.popular}</Badge>}
-              <p className="flex items-center gap-2 font-display text-2xl font-bold">
-                <Coins className="size-6 text-warn" /> {p.coins.toLocaleString(INTL_LOCALE[locale])}
-              </p>
-              <p className="mt-1 text-sm text-muted">{price(p.priceMinor, p.currency)}</p>
-              <Button className="mt-5" variant={i === 1 ? "primary" : "secondary"} onClick={() => buy(p.id)} loading={busy === p.id} disabled={!props.paymentsEnabled}>
-                {t.coins.buy}
-              </Button>
-            </Card>
-          ))}
-        </div>
-      </section>
-
-      <section>
-        <Card className="relative overflow-hidden p-6 sm:p-8">
-          <div className="absolute inset-0 -z-0 bg-gradient-to-br from-accent/15 via-transparent to-glow/10" aria-hidden="true" />
-          <div className="relative grid gap-6 md:grid-cols-[1fr_auto] md:items-center">
+          <div className={`${card} flex items-center gap-3 rounded-[14px] px-[18px] py-3`}>
+            <CoinIcon size={30} />
             <div>
-              <p className="flex items-center gap-2 font-display text-xl font-bold">
-                <Crown className="size-6 text-warn" /> {premium.name}
-                {props.plan === "premium" && <Badge tone="ok">{t.coins.active}</Badge>}
-              </p>
-              <ul className="mt-4 grid gap-2 sm:grid-cols-2">
-                {premium.perks.map((perk) => (
-                  <li key={perk} className="flex items-start gap-2 text-sm text-muted">
-                    <Check className="mt-0.5 size-4 shrink-0 text-ok" /> {perk}
-                  </li>
-                ))}
-              </ul>
-              {props.subscription && (
-                <p className="mt-4 text-xs text-faint">
-                  {props.subscription.status === "cancelled" ? t.coins.cancelledUntil : t.coins.renews} {t.coins.on} {new Date(props.subscription.currentPeriodEnd).toLocaleDateString(INTL_LOCALE[locale])}
-                </p>
-              )}
+              <div className="text-xs text-muted">{P.balance}</div>
+              <div className="font-display text-2xl font-semibold tabular-nums">{num(wallet.paid + wallet.bonus)}</div>
             </div>
-            <div className="text-center md:text-right">
-              <p className="font-display text-3xl font-extrabold">{price(premium.priceMinor, premium.currency)}</p>
-              <p className="text-xs text-faint">{t.coins.perMonth}</p>
-              <Button className="mt-4 w-full md:w-auto" onClick={() => buy("premium")} loading={busy === "premium"} disabled={!props.paymentsEnabled || props.plan === "premium"}>
-                {props.plan === "premium" ? t.coins.member : t.coins.getPlus}
-              </Button>
+            <div className="ml-3 border-l border-line pl-3 text-xs leading-relaxed text-muted">
+              {P.paidCoins} {num(wallet.paid)}
+              <br />
+              {P.bonusCoins} <span className="text-free">{num(wallet.bonus)}</span>
             </div>
           </div>
-        </Card>
-      </section>
+        </div>
 
-      <section>
-        <h2 className="mb-4 flex items-center gap-2 font-display text-lg font-bold">
-          <Receipt className="size-5 text-accent" /> {t.coins.history}
-        </h2>
-        {ledger.length === 0 ? (
-          <EmptyState title={t.coins.noTx} />
-        ) : (
-          <div className="overflow-hidden rounded-[var(--radius-card)] border border-line bg-surface">
-            <ul className="divide-y divide-line">
-              {ledger.map((r) => (
-                <li key={r.id} className="flex items-center justify-between gap-4 px-4 py-3 text-sm">
-                  <div className="min-w-0">
-                    <p className="truncate font-medium">{t.enums.ledger[r.type] ?? r.type}</p>
-                    <p className="text-xs text-faint">{new Date(r.createdAt).toLocaleString(INTL_LOCALE[locale])}</p>
-                  </div>
-                  <div className="text-right tabular-nums">
-                    <p className={r.delta > 0 ? "font-semibold text-ok" : "text-fg"}>
-                      {r.delta > 0 ? "+" : ""}
-                      {r.delta}
-                    </p>
-                    <p className="text-xs text-faint">{t.coins.bal(r.balanceAfter)}</p>
-                  </div>
+        {pendingOld && !live && (
+          <div role="status" className="flex flex-col gap-2 rounded-xl border border-accent-line bg-accent-soft p-4 text-sm md:flex-row md:items-center md:justify-between">
+            <span className="flex items-center gap-2">
+              <AlertTriangle size={18} className="shrink-0 text-accent-ink" /> {P.pendingBanner(pendingOld.id)}
+            </span>
+            <Link href={resultUrl(pendingOld.id)} className="font-semibold text-accent-ink">
+              {P.viewStatus}
+            </Link>
+          </div>
+        )}
+
+        {!props.paymentsEnabled && <p className="rounded-xl border border-warn/30 bg-warn-bg p-4 text-sm text-warn">{P.paymentsOff}</p>}
+
+        {/* daily bonus */}
+        <section className={`${card} flex flex-wrap items-center justify-between gap-4 p-5`}>
+          <div className="flex items-center gap-3">
+            <span className="grid size-11 place-items-center rounded-xl bg-free-bg text-free">
+              <Gift className="size-5" />
+            </span>
+            <div>
+              <h2 className="font-display text-lg font-semibold">{t.coins.daily}</h2>
+              <p className="text-sm text-muted">{t.coins.dailySub}</p>
+            </div>
+          </div>
+          <button onClick={claim} disabled={busy || claimed || !props.dailyEnabled} className="inline-flex h-10 cursor-pointer items-center rounded-[9px] border border-line2 bg-field px-4 text-sm font-semibold text-ink2 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50">
+            {!props.dailyEnabled ? t.coins.dailyUnavailable : claimed ? t.coins.dailyClaimed : `+${props.dailyAmount}`}
+          </button>
+        </section>
+
+        <section className="flex flex-col gap-3.5">
+          <h2 className="font-display text-xl font-semibold">{P.choosePack}</h2>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-3.5" role="radiogroup" aria-label={P.choosePack}>
+            {props.packs.map((p) => {
+              const on = p.id === product;
+              return (
+                <button
+                  key={p.id}
+                  role="radio"
+                  aria-checked={on}
+                  disabled={!!live}
+                  onClick={() => setProduct(p.id)}
+                  className={`relative flex h-[140px] cursor-pointer flex-col items-center justify-center gap-1.5 rounded-[14px] border-2 disabled:cursor-not-allowed md:h-[150px] ${on ? "border-accent bg-accent-soft" : "border-line2 bg-card"}`}
+                >
+                  {p.tag && <span className="absolute -top-px left-1/2 -translate-x-1/2 rounded-b-lg bg-accent px-2.5 py-[3px] text-[11px] font-bold text-on-accent">{p.tag}</span>}
+                  <span className="flex items-center gap-1.5 font-display text-[24px] font-bold md:text-[26px]">
+                    <CoinIcon size={22} />
+                    {num(p.coins + p.bonus)}
+                  </span>
+                  <span className="min-h-4 text-xs font-semibold text-free">{p.bonus ? P.bonus(num(p.bonus)) : ""}</span>
+                  <span className="text-[15px] font-semibold text-ink2">฿{num(p.price)}</span>
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-xs text-muted">{P.bonusNote}</p>
+        </section>
+
+        {/* Lumora Plus */}
+        <section className="flex flex-col gap-3.5">
+          <div>
+            <h2 className="flex items-center gap-2 font-display text-xl font-semibold">
+              <Crown size={20} className="text-accent-ink" aria-hidden="true" /> {P.plusTitle}
+            </h2>
+            <p className="mt-1 text-sm text-muted">{P.plusSub}</p>
+            {props.plusUntil && <p className="mt-2 text-sm text-free">{P.plusActive(new Date(props.plusUntil).toLocaleDateString(L, { dateStyle: "long" }))}</p>}
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label={P.plusTitle}>
+            {props.plans.map((p) => {
+              const on = p.id === product;
+              return (
+                <button
+                  key={p.id}
+                  role="radio"
+                  aria-checked={on}
+                  disabled={!!live}
+                  onClick={() => setProduct(p.id)}
+                  className={`relative flex cursor-pointer flex-col items-start gap-1 rounded-[14px] border-2 p-5 text-left disabled:cursor-not-allowed ${on ? "border-accent bg-accent-soft" : "border-line2 bg-card"}`}
+                >
+                  {p.tag && <span className="absolute top-3 right-3 rounded-full bg-accent px-2.5 py-0.5 text-[11px] font-bold text-on-accent">{p.tag}</span>}
+                  <span className="font-display text-lg font-semibold">{p.name}</span>
+                  <span className="text-sm text-muted">
+                    {P.plusDays(p.days)} · {P.plusCoins(num(p.coins))}
+                  </span>
+                  <span className="mt-2 font-display text-2xl font-bold">฿{num(p.price)}</span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className={`${card} flex flex-col gap-4 p-5 md:p-6`} aria-labelledby="howto">
+          <h2 id="howto" className="flex items-center gap-2 font-display text-xl font-semibold">
+            <QrCode size={22} className="text-accent-ink" aria-hidden="true" /> {P.howTo}
+          </h2>
+          <ol className="flex flex-col gap-3.5">
+            {P.steps.map((x, i) => (
+              <li key={x.t} className="flex gap-3.5">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent font-display font-bold text-on-accent">{i + 1}</span>
+                <span className="flex flex-col gap-0.5">
+                  <span className="font-semibold">{x.t}</span>
+                  <span className="text-[13px] leading-relaxed text-sub">{x.d}</span>
+                </span>
+              </li>
+            ))}
+          </ol>
+          <div className="rounded-xl bg-field p-3.5 text-[13px] leading-relaxed text-sub">
+            {P.caution}{" "}
+            <Link href="/safety" className="font-semibold text-accent-ink">
+              {P.report}
+            </Link>
+          </div>
+        </section>
+
+        {props.models.length > 0 && (
+          <section className="flex flex-col gap-3">
+            <h2 className="font-display text-xl font-semibold">{t.coins.prices}</h2>
+            <p className="text-sm text-muted">{t.coins.pricesSub}</p>
+            <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line">
+              {props.models.map((m) => (
+                <li key={m.id} className="flex items-center justify-between gap-4 bg-card px-4 py-3 text-sm">
+                  <span className="min-w-0">
+                    <span className="block font-semibold">{m.label}</span>
+                    <span className="block truncate text-xs text-muted">{m.blurb}</span>
+                  </span>
+                  <span className="flex shrink-0 items-center gap-1 font-semibold">
+                    <CoinIcon size={16} /> {m.cost}
+                  </span>
                 </li>
               ))}
             </ul>
-            {cursor && (
-              <div className="border-t border-line p-2 text-center">
-                <Button variant="ghost" size="sm" onClick={more}>
-                  {t.common.loadMore}
-                </Button>
-              </div>
-            )}
-          </div>
+          </section>
         )}
-      </section>
+
+        <section className="flex flex-col gap-3">
+          <h2 className="font-display text-xl font-semibold">{P.history}</h2>
+          {props.payments.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-line2 p-6 text-center text-sm text-muted">{P.noHistory}</div>
+          ) : (
+            <div className="overflow-hidden rounded-xl border border-line">
+              <div className="hidden grid-cols-4 bg-card px-[18px] py-3 text-xs text-muted md:grid">
+                <span>{P.colDate}</span>
+                <span>{P.colItem}</span>
+                <span>{P.colAmount}</span>
+                <span>{P.colStatus}</span>
+              </div>
+              {props.payments.map((p) => (
+                <Link key={p.id} href={resultUrl(p.id)} className="grid grid-cols-2 gap-1 border-t border-line px-[18px] py-3.5 text-sm first:border-t-0 hover:bg-card md:grid-cols-4 md:first:border-t">
+                  <span className="text-muted md:text-ink">{fmtDate(p.createdAt)}</span>
+                  <span className="text-right md:text-left">{itemLabel(p)}</span>
+                  <span className="text-muted md:text-ink">฿{num(p.amount)}</span>
+                  <span className={`text-right font-semibold md:text-left ${statusColor[p.status]}`}>{P.status[p.status]}</span>
+                </Link>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
+
+      <aside className="w-full shrink-0 lg:w-[340px]">
+        <div className={`${card} flex flex-col gap-3.5 rounded-[18px] p-6 lg:sticky lg:top-24`}>
+          {!live ? (
+            <>
+              <h2 className="font-display text-xl font-semibold">{P.summary}</h2>
+              {pack ? (
+                <>
+                  <Row label={P.coins} value={num(pack.coins)} />
+                  <Row label={P.bonusCoins} value={<span className="text-free">+{num(pack.bonus)}</span>} />
+                </>
+              ) : plan ? (
+                <>
+                  <Row label={P.plusTitle} value={P.plusDays(plan.days)} />
+                  <Row label={P.bonusCoins} value={<span className="text-free">+{num(plan.coins)}</span>} />
+                </>
+              ) : null}
+              <Row label={P.method} value="QR Code (PromptPay)" />
+              <div className="h-px bg-line" />
+              <div className="flex items-baseline justify-between">
+                <span className="text-sm text-sub">{P.total}</span>
+                <span className="font-display text-[20px] font-semibold">{pack ? `${num(pack.coins + pack.bonus)} ${P.coins}` : plan ? plan.name : ""}</span>
+              </div>
+              <div className="flex items-baseline justify-between">
+                <span className="text-sm text-sub">{P.toPay}</span>
+                <span className="font-display text-[30px] font-bold text-accent-ink">฿{num(price)}</span>
+              </div>
+              <button onClick={pay} disabled={busy || !props.paymentsEnabled || !product} className="inline-flex h-[52px] cursor-pointer items-center justify-center gap-2 rounded-xl bg-accent text-base font-bold text-on-accent hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40">
+                <QrCode size={18} /> {P.createQr}
+              </button>
+            </>
+          ) : (
+            <>
+              <h2 className="font-display text-xl font-semibold">{P.scanTitle}</h2>
+              <div className="self-center">
+                {live.qr && (
+                  // eslint-disable-next-line @next/next/no-img-element -- gateway QR (data URL or gateway URL)
+                  <img src={live.qr} alt="PromptPay QR" width={220} height={220} className="h-[220px] w-[220px] rounded-xl bg-white p-2" />
+                )}
+              </div>
+              <div className="text-center font-display text-[26px] font-bold text-accent-ink">฿{num(live.amount)}</div>
+              <div className="text-center text-xs text-muted">{P.payee(live.id)}</div>
+              <Countdown until={live.expiresAt} label={P.expiresIn} warn={P.expiredWarn} onExpire={() => router.push(resultUrl(live.id))} />
+              <button onClick={saveQr} className="inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-line3 font-semibold hover:bg-field">
+                <Download size={16} /> {P.saveQr}
+              </button>
+              <Link href={resultUrl(live.id)} className="inline-flex h-12 items-center justify-center rounded-xl bg-accent font-bold text-on-accent hover:opacity-90">
+                {P.iPaid}
+              </Link>
+              <button onClick={() => setLive(null)} className="h-10 cursor-pointer text-sm font-semibold text-sub hover:text-ink">
+                {P.changePack}
+              </button>
+              {props.mockPayments && <p className="text-xs text-muted">{P.mockNote}</p>}
+            </>
+          )}
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+function Row({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="flex justify-between text-sm text-sub">
+      <span>{label}</span>
+      <span className="text-ink">{value}</span>
     </div>
   );
 }

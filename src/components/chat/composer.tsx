@@ -98,7 +98,7 @@ export function Composer({
           <button
             type="submit"
             disabled={!value.trim() || disabled}
-            className="grid size-10 shrink-0 place-items-center rounded-xl bg-accent text-white hover:bg-accent-strong disabled:opacity-40"
+            className="grid size-10 shrink-0 place-items-center rounded-xl bg-accent text-on-accent hover:opacity-90 disabled:opacity-40"
             aria-label={t.chat.send}
           >
             <SendHorizonal className="size-4" />

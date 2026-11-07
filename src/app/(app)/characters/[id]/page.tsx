@@ -4,12 +4,12 @@ import { MessageCircle, Heart, ShieldAlert } from "lucide-react";
 import { Avatar, Badge, ErrorState } from "@/components/ui/misc";
 import { FavoriteButton, OwnerActions, StartChatButton, ViewerSafetyActions } from "@/components/characters/character-actions";
 import { StaffCharacterTools } from "@/components/admin/staff-character-tools";
-import { can } from "@/server/domain/permissions";
-import { currentUser } from "@/server/auth/current";
-import { AppError } from "@/server/errors";
-import { getViewableCharacter, toDetail } from "@/server/services/characters";
-import { listConversations } from "@/server/services/conversations";
-import { db } from "@/server/db";
+import { can } from "@/lib/permissions";
+import { currentUser } from "@/lib/server/access";
+import { AppError } from "@/lib/server/errors";
+import { findCharacter, getViewableCharacter, isBlocked, isFavorite, toDetail } from "@/lib/server/characters";
+import { listConversations } from "@/lib/server/conversations";
+
 import { getLocale, getT } from "@/i18n/server";
 import { INTL_LOCALE } from "@/i18n/config";
 import { localizeMessage } from "@/i18n/errors";
@@ -18,7 +18,7 @@ type Params = Promise<{ id: string }>;
 
 export async function generateMetadata({ params }: { params: Params }) {
   const { id } = await params;
-  const c = await db.character.findUnique({ where: { id }, select: { name: true, visibility: true, publicationStatus: true } });
+  const c = await findCharacter(id);
   return { title: c && c.visibility !== "private" && c.publicationStatus === "published" ? c.name : (await getT()).titles.character };
 }
 
@@ -38,11 +38,11 @@ export default async function CharacterPage({ params }: { params: Params }) {
   const c = toDetail(character, viewer);
   const [fav, blocked, chats] = viewer
     ? await Promise.all([
-        db.favorite.findUnique({ where: { userId_characterId: { userId: viewer.id, characterId: id } } }),
-        db.characterBlock.findUnique({ where: { userId_characterId: { userId: viewer.id, characterId: id } } }),
+        isFavorite(viewer.id, id),
+        isBlocked(viewer.id, id),
         listConversations(viewer, id),
       ])
-    : [null, null, []];
+    : [false, false, []];
   const canChat = character.publicationStatus !== "suspended";
   const num = (n: number) => n.toLocaleString(INTL_LOCALE[locale]);
   const sectionTitle = "mb-2 text-sm font-semibold uppercase tracking-wide text-faint";
@@ -50,7 +50,7 @@ export default async function CharacterPage({ params }: { params: Params }) {
   return (
     <article className="animate-fade-in">
       <div className="grid gap-8 lg:grid-cols-[minmax(0,360px)_1fr]">
-        <div className="relative overflow-hidden rounded-[var(--radius-card)] border border-line">
+        <div className="relative overflow-hidden rounded-2xl border border-line">
           <Avatar name={c.name} src={c.avatarUrl} className="aspect-[4/5] w-full text-8xl" rounded="rounded-none" />
         </div>
 
@@ -89,14 +89,14 @@ export default async function CharacterPage({ params }: { params: Params }) {
             </div>
           )}
 
-          {viewer && !c.isOwner && can(viewer.role, "characters.moderate") && (
+          {viewer && !c.isOwner && can(viewer.roles, "characters.moderate") && (
             <div className="mt-6">
               <StaffCharacterTools
                 characterId={c.id}
                 publicationStatus={character.publicationStatus}
                 visibility={character.visibility}
                 featured={character.featured}
-                canEditAny={can(viewer.role, "characters.edit_any")}
+                canEditAny={can(viewer.roles, "characters.edit_any")}
               />
             </div>
           )}

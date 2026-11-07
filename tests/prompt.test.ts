@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { assemblePrompt, normaliseTurns, RATING_GUIDANCE, SYSTEM_POLICY } from "@/server/ai/prompt";
-import { estimateTokens } from "@/server/ai/tokens";
+import { assemblePrompt, normaliseTurns, RATING_GUIDANCE, SYSTEM_POLICY } from "@/lib/server/ai/prompt";
+import { estimateTokens } from "@/lib/server/ai/tokens";
 
 const character = {
   name: "Aria",

@@ -1,6 +1,6 @@
-import { ok, route } from "@/server/http";
-import { requireUser } from "@/server/auth/guards";
-import { cancelGeneration } from "@/server/services/chat";
+import { ok, route } from "@/lib/server/http";
+import { requireUser } from "@/lib/server/access";
+import { cancelGeneration } from "@/lib/server/chat";
 
 type Ctx = { params: Promise<{ id: string }> };
 

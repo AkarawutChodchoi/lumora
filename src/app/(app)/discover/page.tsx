@@ -4,9 +4,9 @@ import { Avatar, EmptyState } from "@/components/ui/misc";
 import { ButtonLink } from "@/components/ui/button";
 import { InstallHint } from "@/components/layout/install-hint";
 import { CapsuleRow, CategoryTiles, HeroCarousel, StoreTabs } from "@/components/discover/store";
-import { currentUser } from "@/server/auth/current";
-import { discover, listFavorites } from "@/server/services/characters";
-import { listConversations } from "@/server/services/conversations";
+import { currentUser } from "@/lib/server/access";
+import { discover, listFavorites } from "@/lib/server/characters";
+import { listConversations } from "@/lib/server/conversations";
 import { getT, pageTitle } from "@/i18n/server";
 
 export const generateMetadata = pageTitle("discover");

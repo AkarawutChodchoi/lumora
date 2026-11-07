@@ -1,5 +1,5 @@
-import { ok, route } from "@/server/http";
-import { paymentsEnabled } from "@/server/config";
-import { COIN_PACKAGES, PLANS } from "@/server/domain/catalog";
+import { ok, route } from "@/lib/server/http";
+import { paymentsEnabled } from "@/lib/server/config";
+import { COIN_PACKS, MEMBERSHIP_PLANS, PAY_METHODS } from "@/lib/domain/catalog";
 
-export const GET = route(async () => ok({ paymentsEnabled: paymentsEnabled(), packages: COIN_PACKAGES, plans: PLANS }));
+export const GET = route(async () => ok({ paymentsEnabled: paymentsEnabled(), packs: COIN_PACKS, plans: MEMBERSHIP_PLANS, methods: PAY_METHODS }));

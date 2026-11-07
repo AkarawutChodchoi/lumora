@@ -1,6 +1,6 @@
 import { CharacterForm, EMPTY_CHARACTER } from "@/components/characters/character-form";
 import { PageHeader } from "@/components/ui/misc";
-import { pageUser } from "@/server/auth/current";
+import { pageUser } from "@/lib/server/access";
 import { getT, pageTitle } from "@/i18n/server";
 
 export const generateMetadata = pageTitle("newCharacter");

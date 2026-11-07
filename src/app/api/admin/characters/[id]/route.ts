@@ -1,7 +1,7 @@
-import { ok, parseJson, route } from "@/server/http";
+import { ok, parseJson, route } from "@/lib/server/http";
 type Ctx = { params: Promise<{ id: string }> };
-import { requirePermission } from "@/server/auth/guards";
-import { characterModerationSchema, moderateCharacter } from "@/server/services/admin";
+import { requirePermission } from "@/lib/server/access";
+import { characterModerationSchema, moderateCharacter } from "@/lib/server/admin";
 
 export const POST = route(async (req: Request, { params }: Ctx) => {
   const actor = await requirePermission("characters.moderate");

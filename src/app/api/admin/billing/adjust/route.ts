@@ -1,6 +1,6 @@
-import { ok, parseJson, route } from "@/server/http";
-import { requirePermission } from "@/server/auth/guards";
-import { adjustCredits, adjustSchema } from "@/server/services/admin";
+import { ok, parseJson, route } from "@/lib/server/http";
+import { requirePermission } from "@/lib/server/access";
+import { adjustCredits, adjustSchema } from "@/lib/server/admin";
 
 export const POST = route(async (req: Request) => {
   const actor = await requirePermission("billing.adjust");

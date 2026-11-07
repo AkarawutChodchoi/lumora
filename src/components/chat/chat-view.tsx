@@ -298,7 +298,7 @@ export function ChatView(props: Props) {
           <Avatar name={character.name} src={character.avatarUrl} className="size-10" />
           <span className="min-w-0">
             <span className="flex items-center gap-1.5 truncate font-semibold">
-              {title} {pinned && <Pin className="size-3.5 text-accent" aria-label={t.chat.pinned} />}
+              {title} {pinned && <Pin className="size-3.5 text-accent-ink" aria-label={t.chat.pinned} />}
             </span>
             <span className="block truncate text-xs text-faint">{busy ? t.chat.writing(character.name) : character.tagline || character.name}</span>
           </span>
@@ -372,7 +372,7 @@ export function ChatView(props: Props) {
         <div className="mx-auto max-w-3xl px-3 pt-3 sm:px-6">
           {notice && (
             <div className="mb-3 flex items-start gap-2 rounded-xl border border-accent/30 bg-accent-soft px-3 py-2 text-sm" role="status">
-              <LifeBuoy className="mt-0.5 size-4 shrink-0 text-accent" />
+              <LifeBuoy className="mt-0.5 size-4 shrink-0 text-accent-ink" />
               <span className="flex-1">{notice}</span>
               <button onClick={() => setNotice(null)} aria-label={t.common.dismiss} className="text-faint hover:text-fg">
                 <X className="size-4" />
@@ -464,7 +464,12 @@ function MenuItem({ icon, label, onClick, href, danger }: { icon: React.ReactNod
 function RenameDialog({ open, initial, onClose, onSave }: { open: boolean; initial: string; onClose: () => void; onSave: (title: string) => Promise<void> }) {
   const t = useT();
   const [value, setValue] = useState(initial);
-  useEffect(() => setValue(initial), [initial, open]);
+  // reset the field each time the dialog opens
+  const [openedFor, setOpenedFor] = useState({ open, initial });
+  if (openedFor.open !== open || openedFor.initial !== initial) {
+    setOpenedFor({ open, initial });
+    setValue(initial);
+  }
   return (
     <Modal open={open} onClose={onClose} title={t.chat.rename}>
       <form
@@ -506,7 +511,7 @@ function EditDialog({ message, onClose, onSave }: { message: ChatMessage; onClos
           value={value}
           onChange={(e) => setValue(e.target.value)}
           maxLength={4000}
-          className="min-h-32 w-full rounded-xl border border-line bg-surface-2 p-3 text-base focus:border-accent focus:outline-none sm:text-sm"
+          className="min-h-32 w-full rounded-xl border border-line bg-surface-2 p-3 text-base focus:border-line3 focus:outline-none sm:text-sm"
           aria-label={t.chat.message}
           autoFocus
         />

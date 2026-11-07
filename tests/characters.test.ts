@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { db } from "@/server/db";
+import { eq } from "drizzle-orm";
+import { db, schema } from "@/db";
 import {
   getViewableCharacter,
   listVersions,
@@ -8,9 +9,9 @@ import {
   setBlocked,
   updateCharacter,
   createCharacter,
-} from "@/server/services/characters";
-import { startConversation } from "@/server/services/conversations";
-import { moderateCharacter } from "@/server/services/admin";
+} from "@/lib/server/characters";
+import { startConversation } from "@/lib/server/conversations";
+import { moderateCharacter } from "@/lib/server/admin";
 import { characterInput, makeCharacter, makeUser } from "./helpers";
 
 const search = (q: string, viewer: Awaited<ReturnType<typeof makeUser>> | null) => searchCharacters({ q, sort: "newest", page: 1 }, viewer);
@@ -62,13 +63,17 @@ describe("character visibility and ownership", () => {
     const c = await makeCharacter(owner, {}, "public");
     const conv = await startConversation(owner, c.id);
     await updateCharacter(owner, c.id, characterInput({ visibility: "public", greeting: "A new greeting" }));
-    const pinned = await db.conversation.findUniqueOrThrow({ where: { id: conv.id }, include: { characterVersion: true } });
-    expect(pinned.characterVersion.version).toBe(1);
+    const [pinned] = await db
+      .select({ version: schema.characterVersion.version })
+      .from(schema.conversation)
+      .innerJoin(schema.characterVersion, eq(schema.characterVersion.id, schema.conversation.characterVersionId))
+      .where(eq(schema.conversation.id, conv.id));
+    expect(pinned.version).toBe(1);
   });
 
   it("blocks suspended characters from publishing and new chats", async () => {
     const owner = await makeUser();
-    const admin = await makeUser({ role: "admin" });
+    const admin = await makeUser({ roles: ["admin"] });
     const user = await makeUser();
     const c = await makeCharacter(owner, {}, "public");
     await moderateCharacter(admin, c.id, { action: "suspend", reason: "policy violation" });

@@ -4,12 +4,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Heart, LayoutGrid, MessageCircle } from "lucide-react";
-import type { CharacterCard } from "@/server/services/characters";
+import type { CharacterCard } from "@/lib/server/characters";
 import { Avatar, Badge } from "@/components/ui/misc";
 import { ChipPicker } from "@/components/ui/chip-picker";
 import { useLocale, useT } from "@/i18n/client";
 import { INTL_LOCALE } from "@/i18n/config";
-import { CATEGORY_GROUPS, POPULAR_CATEGORIES } from "@/server/domain/taxonomy";
+import { CATEGORY_GROUPS, POPULAR_CATEGORIES } from "@/lib/domain/taxonomy";
 
 const compact = (n: number, locale: string) => Intl.NumberFormat(locale, { notation: "compact" }).format(n);
 
@@ -39,10 +39,10 @@ export function HeroCarousel({ items }: { items: CharacterCard[] }) {
       <div
         ref={track}
         onScroll={(e) => setIndex(Math.round(e.currentTarget.scrollLeft / e.currentTarget.clientWidth))}
-        className="scrollbar-none flex snap-x snap-mandatory overflow-x-auto rounded-[var(--radius-card)]"
+        className="scrollbar-none flex snap-x snap-mandatory overflow-x-auto rounded-2xl"
       >
         {items.map((c) => (
-          <Link key={c.id} href={`/characters/${c.id}`} className="relative w-full shrink-0 snap-center overflow-hidden rounded-[var(--radius-card)] border border-line" aria-label={c.name}>
+          <Link key={c.id} href={`/characters/${c.id}`} className="relative w-full shrink-0 snap-center overflow-hidden rounded-2xl border border-line" aria-label={c.name}>
             {/* Blurred backdrop from the portrait, then the portrait itself — like a store capsule. */}
             <div className="absolute inset-0 scale-105 opacity-80 sm:scale-110 sm:opacity-50 sm:blur-2xl" aria-hidden="true">
               <Avatar name={c.name} src={c.avatarUrl} className="size-full text-9xl" rounded="rounded-none" />
@@ -70,7 +70,7 @@ export function HeroCarousel({ items }: { items: CharacterCard[] }) {
                   </span>
                   <span>{t.common.by(c.creatorName)}</span>
                 </p>
-                <span className="mt-4 inline-flex items-center rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-white">{t.discover.meet}</span>
+                <span className="mt-4 inline-flex items-center rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-on-accent">{t.discover.meet}</span>
               </div>
             </div>
           </Link>

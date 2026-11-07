@@ -1,6 +1,6 @@
-import { ok, route } from "@/server/http";
-import { requirePermission } from "@/server/auth/guards";
-import { searchAllCharacters } from "@/server/services/admin";
+import { ok, route } from "@/lib/server/http";
+import { requirePermission } from "@/lib/server/access";
+import { searchAllCharacters } from "@/lib/server/admin";
 
 export const GET = route(async (req: Request) => {
   await requirePermission("characters.moderate");

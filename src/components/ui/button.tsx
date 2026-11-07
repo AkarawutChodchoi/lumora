@@ -5,19 +5,20 @@ import { Spinner } from "./spinner";
 type Variant = "primary" | "secondary" | "ghost" | "danger";
 type Size = "sm" | "md" | "lg";
 
+// Alinmanga button shapes: 10px radius, bold amber (accent) primary with dark text.
 const base =
-  "inline-flex items-center justify-center gap-2 rounded-xl font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 select-none whitespace-nowrap";
+  "inline-flex cursor-pointer items-center justify-center gap-2 rounded-[10px] font-semibold transition-[opacity,background-color,color] disabled:cursor-not-allowed disabled:opacity-40 select-none whitespace-nowrap";
 
 const variants: Record<Variant, string> = {
-  primary: "bg-accent text-white hover:bg-accent-strong shadow-[0_6px_24px_-8px_#8b7bff] ",
-  secondary: "bg-surface-2 text-fg border border-line hover:bg-surface-3 hover:border-line-strong",
-  ghost: "text-muted hover:text-fg hover:bg-surface-2",
-  danger: "bg-danger/15 text-danger border border-danger/30 hover:bg-danger/25",
+  primary: "bg-accent font-bold text-on-accent hover:opacity-90",
+  secondary: "border border-line3 bg-transparent text-ink hover:bg-field",
+  ghost: "text-sub hover:bg-field hover:text-ink",
+  danger: "border border-danger/40 bg-danger-bg text-danger-soft hover:opacity-90",
 };
 
 const sizes: Record<Size, string> = {
-  sm: "h-8 px-3 text-sm",
-  md: "h-10 px-4 text-sm",
+  sm: "h-9 px-3.5 text-sm",
+  md: "h-11 px-5 text-sm",
   lg: "h-12 px-6 text-base",
 };
 

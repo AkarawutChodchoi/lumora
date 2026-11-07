@@ -8,8 +8,8 @@ import { SelectField, TextArea, TextField } from "@/components/ui/field";
 import { Avatar, Badge } from "@/components/ui/misc";
 import { ImageUpload } from "@/components/ui/image-upload";
 import { ChipPicker } from "@/components/ui/chip-picker";
-import { MAX_CATEGORIES, MAX_TAGS } from "@/server/domain/enums";
-import { CATEGORY_GROUPS, TAG_GROUPS } from "@/server/domain/taxonomy";
+import { MAX_CATEGORIES, MAX_TAGS } from "@/lib/domain/enums";
+import { CATEGORY_GROUPS, TAG_GROUPS } from "@/lib/domain/taxonomy";
 import { useToast } from "@/components/ui/toast";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { useT } from "@/i18n/client";
@@ -79,6 +79,8 @@ export function CharacterForm({
         const draft = { ...EMPTY_CHARACTER, ...JSON.parse(saved) };
         // Drafts saved before multi-category support had a single "category".
         if (!Array.isArray(draft.categories)) draft.categories = draft.category ? [draft.category] : [];
+        // localStorage only exists in the browser, so the draft can only be restored after mount
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setV(draft);
       }
     } catch {
@@ -171,7 +173,7 @@ export function CharacterForm({
             <div className="flex flex-wrap gap-2">
               {v.categories.map((c, idx) => (
                 <span key={c} className="inline-flex items-center gap-1.5 rounded-full border border-accent bg-accent-soft py-1.5 pr-2 pl-3 text-sm">
-                  {idx === 0 && <span className="rounded-full bg-accent px-1.5 text-[10px] font-semibold text-white">1</span>}
+                  {idx === 0 && <span className="rounded-full bg-accent px-1.5 text-[10px] font-semibold text-on-accent">1</span>}
                   {t.enums.category[c] ?? c}
                   <button type="button" aria-label={t.form.removeTag(t.enums.category[c] ?? c)} onClick={() => setV((s) => ({ ...s, categories: s.categories.filter((x) => x !== c) }))} className="text-faint hover:text-fg">
                     <X className="size-3.5" />
@@ -301,7 +303,7 @@ export function CharacterForm({
       <aside className={`${showPreview ? "block" : "hidden"} min-w-0 lg:block`} aria-label={t.form.preview}>
         <div className="sticky top-6 space-y-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-faint">{t.form.preview}</p>
-          <div className="overflow-hidden rounded-[var(--radius-card)] border border-line bg-surface">
+          <div className="overflow-hidden rounded-2xl border border-line bg-surface">
             <div className="relative aspect-[4/5]">
               <Avatar name={v.name || "?"} src={/^(https:\/\/|\/api\/images\/)/.test(v.avatarUrl) ? v.avatarUrl : null} className="size-full text-6xl" rounded="rounded-none" />
               <div className="absolute inset-0 bg-gradient-to-t from-bg via-transparent" />

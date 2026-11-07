@@ -29,6 +29,8 @@ export function InstallHint() {
     const standalone = window.matchMedia("(display-mode: standalone)").matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
     if (dismissed || standalone) return;
     const ua = navigator.userAgent;
+    // platform detection needs navigator, which only exists after mount
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (/iPhone|iPad|iPod/i.test(ua)) setPlatform("ios");
     else if (/Android/i.test(ua)) setPlatform("android");
 
@@ -64,7 +66,7 @@ export function InstallHint() {
               await prompt.prompt();
               dismiss();
             }}
-            className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white"
+            className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-on-accent"
           >
             <Download className="size-3.5" /> {t.install.button}
           </button>

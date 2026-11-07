@@ -1,7 +1,7 @@
-import { ok, parseJson, route } from "@/server/http";
+import { ok, parseJson, route } from "@/lib/server/http";
 import { z } from "zod";
-import { requireActiveUser, requireUser } from "@/server/auth/guards";
-import { listConversations, startConversation } from "@/server/services/conversations";
+import { requireActiveUser, requireUser } from "@/lib/server/access";
+import { listConversations, startConversation } from "@/lib/server/conversations";
 
 export const GET = route(async (req: Request) => {
   const characterId = new URL(req.url).searchParams.get("characterId") ?? undefined;

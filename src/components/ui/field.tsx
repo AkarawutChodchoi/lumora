@@ -3,7 +3,7 @@
 import { useId, type ComponentProps, type ReactNode } from "react";
 
 const control =
-  "w-full rounded-xl border border-line bg-surface-2 px-3.5 text-fg placeholder:text-faint transition-colors focus:border-accent focus:outline-none focus-visible:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-60 aria-[invalid=true]:border-danger";
+  "w-full rounded-[10px] border border-line2 bg-field px-3.5 text-[15px] text-ink placeholder:text-dim transition-colors focus:border-line3 focus:outline-none focus-visible:outline-none disabled:opacity-60 aria-[invalid=true]:border-danger";
 
 interface FieldProps {
   label: string;
@@ -16,7 +16,7 @@ function FieldShell({ id, label, hint, error, counter, children }: FieldProps & 
   return (
     <div className="space-y-1.5">
       <div className="flex items-baseline justify-between gap-3">
-        <label htmlFor={id} className="text-sm font-medium text-fg">
+        <label htmlFor={id} className="text-sm font-medium text-ink2">
           {label}
         </label>
         {counter && (
@@ -120,9 +120,9 @@ export function Toggle({
         aria-checked={checked}
         disabled={disabled}
         onClick={() => onChange(!checked)}
-        className={`relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50 ${checked ? "bg-accent" : "bg-surface-3"}`}
+        className={`relative h-7 w-12 shrink-0 cursor-pointer rounded-full transition-colors disabled:opacity-50 ${checked ? "bg-accent" : "bg-line3"}`}
       >
-        <span className={`absolute top-0.5 left-0.5 size-5 rounded-full bg-white transition-transform ${checked ? "translate-x-5" : ""}`} />
+        <span className={`absolute top-[3px] left-[3px] h-[22px] w-[22px] rounded-full bg-white transition-transform ${checked ? "translate-x-5" : ""}`} />
       </button>
     </div>
   );

@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { Badge, PageHeader } from "@/components/ui/misc";
 import { ReasonAction } from "@/components/admin/admin-actions";
-import { pageStaff } from "@/server/auth/current";
-import { searchAllCharacters } from "@/server/services/admin";
-import { PUBLICATION_STATUSES } from "@/server/domain/enums";
+import { pageStaff } from "@/lib/server/access";
+import { searchAllCharacters } from "@/lib/server/admin";
+import { PUBLICATION_STATUSES } from "@/lib/domain/enums";
 import { getT, pageTitle } from "@/i18n/server";
 
 export const generateMetadata = pageTitle("adminCharacters");
@@ -25,13 +25,13 @@ export default async function AdminCharacters({ searchParams }: { searchParams: 
             <option key={s} value={s}>{t.enums.publication[s]}</option>
           ))}
         </select>
-        <button className="h-10 rounded-xl bg-accent px-4 text-sm font-semibold text-white">{t.common.filter}</button>
+        <button className="h-10 rounded-xl bg-accent px-4 text-sm font-semibold text-on-accent">{t.common.filter}</button>
       </form>
       <ul className="space-y-2">
         {items.map((c) => (
           <li key={c.id} className="flex flex-wrap items-center gap-3 rounded-2xl border border-line bg-surface p-4">
             <div className="min-w-0 flex-1">
-              <Link href={`/admin/characters/${c.id}`} className="font-semibold text-accent hover:underline">{c.name}</Link>
+              <Link href={`/admin/characters/${c.id}`} className="font-semibold text-accent-ink hover:underline">{c.name}</Link>
               <span className="ml-2 text-xs text-faint">v{c.currentVersion} · {t.common.by(c.owner.displayName)} · {T.chatsN(c.chatCount)}</span>
               <div className="mt-1 flex flex-wrap gap-1.5">
                 <Badge>{t.enums.visibility[c.visibility]}</Badge>

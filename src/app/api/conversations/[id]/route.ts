@@ -1,7 +1,7 @@
-import { ok, parseJson, route } from "@/server/http";
+import { ok, parseJson, route } from "@/lib/server/http";
 type Ctx = { params: Promise<{ id: string }> };
-import { requireUser } from "@/server/auth/guards";
-import { conversationPatchSchema, deleteConversation, getOwnedConversation, updateConversation } from "@/server/services/conversations";
+import { requireUser } from "@/lib/server/access";
+import { conversationPatchSchema, deleteConversation, getOwnedConversation, updateConversation } from "@/lib/server/conversations";
 
 export const GET = route(async (_req: Request, { params }: Ctx) => ok({ conversation: await getOwnedConversation(await requireUser(), (await params).id) }));
 

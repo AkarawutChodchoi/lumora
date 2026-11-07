@@ -1,11 +1,11 @@
 import { after } from "next/server";
-import { ok, parseJson, route } from "@/server/http";
-import { logger } from "@/server/logger";
-import { maybeScanConversation } from "@/server/services/auto-memory";
-import { requireUser } from "@/server/auth/guards";
-import { rateLimit } from "@/server/rate-limit";
-import { listMessages, messagesQuerySchema } from "@/server/services/conversations";
-import { prepareGeneration, runGeneration, sendSchema, type ChatStreamEvent } from "@/server/services/chat";
+import { ok, parseJson, route } from "@/lib/server/http";
+import { logger } from "@/lib/server/logger";
+import { maybeScanConversation } from "@/lib/server/auto-memory";
+import { requireUser } from "@/lib/server/access";
+import { rateLimit } from "@/lib/server/rateLimit";
+import { listMessages, messagesQuerySchema } from "@/lib/server/conversations";
+import { prepareGeneration, runGeneration, sendSchema, type ChatStreamEvent } from "@/lib/server/chat";
 
 type Ctx = { params: Promise<{ id: string }> };
 

@@ -1,31 +1,34 @@
-import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
-import { processDueDeletions } from "@/server/services/users";
-import { db } from "@/server/db";
-import { logger } from "@/server/logger";
-import { purgeExpiredRateLimits } from "@/server/rate-limit";
+import { lt } from "drizzle-orm";
+import { db, schema } from "@/db";
+import { processDueDeletions } from "@/lib/server/users";
+import { logger } from "@/lib/server/logger";
+import { purgeExpiredRateLimits } from "@/lib/server/rateLimit";
+import { reconcilePayments } from "@/lib/server/payments/reconcile";
+import { cronAuthorized } from "@/lib/server/cron";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Scheduled maintenance, called daily with `Authorization: Bearer $CRON_SECRET`
- * (Vercel Cron sends a GET with that header; see vercel.json): erases accounts past
- * their deletion grace period and purges expired tokens, sessions and rate-limit windows.
+ * Daily maintenance (vercel.json): settles payments whose webhook never arrived,
+ * erases accounts past their deletion grace period, and purges expired sessions,
+ * verification tokens, old memories and rate-limit windows.
  */
 async function handler(req: Request) {
-  const secret = process.env.CRON_SECRET ?? "";
-  const given = req.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
-  const ok = secret.length >= 16 && given.length === secret.length && timingSafeEqual(Buffer.from(given), Buffer.from(secret));
-  if (!ok) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-
+  if (!cronAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const now = new Date();
+  const payments = await reconcilePayments().catch((e) => ({ error: String((e as Error).message) }));
   const erased = await processDueDeletions(now);
-  const sessions = await db.session.deleteMany({ where: { OR: [{ expiresAt: { lt: now } }, { revokedAt: { not: null } }] } });
-  const tokens = await db.passwordResetToken.deleteMany({ where: { expiresAt: { lt: now } } });
-  const memories = await db.memory.deleteMany({ where: { expiresAt: { lt: new Date(now.getTime() - 30 * 86400000) } } });
-  const rateLimits = await purgeExpiredRateLimits(now);
-  logger.info("maintenance_run", { erased, sessions: sessions.count, tokens: tokens.count, memories: memories.count, rateLimits });
-  return NextResponse.json({ erasedAccounts: erased, purgedSessions: sessions.count, purgedResetTokens: tokens.count, purgedExpiredMemories: memories.count, purgedRateLimits: rateLimits });
+  const sessions = await db.delete(schema.session).where(lt(schema.session.expiresAt, now)).returning({ id: schema.session.id });
+  const tokens = await db.delete(schema.verification).where(lt(schema.verification.expiresAt, now)).returning({ id: schema.verification.id });
+  const memories = await db
+    .delete(schema.memory)
+    .where(lt(schema.memory.expiresAt, new Date(now.getTime() - 30 * 86400000)))
+    .returning({ id: schema.memory.id });
+  const rateLimits = await purgeExpiredRateLimits(now.getTime());
+  const result = { payments, erasedAccounts: erased, purgedSessions: sessions.length, purgedTokens: tokens.length, purgedExpiredMemories: memories.length, purgedRateLimits: rateLimits };
+  logger.info("maintenance_run", result);
+  return NextResponse.json(result);
 }
 
 export const GET = handler;

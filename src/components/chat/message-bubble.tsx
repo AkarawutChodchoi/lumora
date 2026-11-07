@@ -68,7 +68,7 @@ export function MessageBubble({
       <div className={`flex max-w-[85%] flex-col sm:max-w-[75%] ${isUser ? "items-end" : "items-start"}`}>
         <div
           className={`rounded-2xl px-4 py-2.5 text-[15px] leading-relaxed break-words whitespace-pre-wrap ${
-            isUser ? "rounded-tr-md bg-accent text-white" : `rounded-tl-md border bg-surface-2 ${failed ? "border-danger/40" : "border-line"}`
+            isUser ? "rounded-tr-md bg-accent text-on-accent" : `rounded-tl-md border bg-surface-2 ${failed ? "border-danger/40" : "border-line"}`
           }`}
         >
           {waiting ? (

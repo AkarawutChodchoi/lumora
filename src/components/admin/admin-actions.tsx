@@ -122,6 +122,7 @@ export function AdjustCreditsForm({ userId }: { userId: string }) {
   const router = useRouter();
   const toast = useToast();
   const [delta, setDelta] = useState("");
+  const [bucket, setBucket] = useState<"bonus" | "paid">("bonus");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   return (
@@ -134,7 +135,7 @@ export function AdjustCreditsForm({ userId }: { userId: string }) {
         if (!confirm(t.admin.actions.adjustConfirm(n))) return;
         setBusy(true);
         try {
-          await api("/api/admin/billing/adjust", { method: "POST", body: { userId, delta: n, reason, requestId: crypto.randomUUID() } });
+          await api("/api/admin/billing/adjust", { method: "POST", body: { userId, delta: n, bucket, reason, requestId: crypto.randomUUID() } });
           toast.success(t.admin.actions.posted);
           setDelta("");
           setReason("");
@@ -147,6 +148,15 @@ export function AdjustCreditsForm({ userId }: { userId: string }) {
       }}
     >
       <TextField label={t.admin.actions.coinsDelta} type="number" step={1} value={delta} onChange={(e) => setDelta(e.target.value)} />
+      <SelectField
+        label={t.pay.coins}
+        value={bucket}
+        onChange={(e) => setBucket(e.target.value === "paid" ? "paid" : "bonus")}
+        options={[
+          { value: "bonus", label: t.pay.bonusCoins },
+          { value: "paid", label: t.pay.paidCoins },
+        ]}
+      />
       <TextArea label={t.admin.actions.reasonShort} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} />
       <Button type="submit" loading={busy} disabled={reason.trim().length < 5 || !delta}>
         {t.admin.actions.post}
@@ -298,11 +308,10 @@ export function SelfTopUp({ selfId }: { selfId: string }) {
 }
 
 /** Admin-only account controls: role, free Plus, sign-out everywhere, erase. */
-export function AccountControls({ userId, email, role, isSelf, canRoles, canPremium, canErase }: { userId: string; email: string; role: string; isSelf: boolean; canRoles: boolean; canPremium: boolean; canErase: boolean }) {
+export function AccountControls({ userId, email, roles, isSelf, canRoles, canPremium, canErase }: { userId: string; email: string; roles: string[]; isSelf: boolean; canRoles: boolean; canPremium: boolean; canErase: boolean }) {
   const t = useT();
   const router = useRouter();
   const toast = useToast();
-  const [newRole, setNewRole] = useState(role);
   const [days, setDays] = useState("30");
   const [confirmEmail, setConfirmEmail] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -325,13 +334,29 @@ export function AccountControls({ userId, email, role, isSelf, canRoles, canPrem
   return (
     <div className="space-y-5">
       {canRoles && !isSelf && (
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="min-w-40 flex-1">
-            <SelectField label={A.role} value={newRole} onChange={(e) => setNewRole(e.target.value)} options={["user", "moderator", "admin"].map((r) => ({ value: r, label: t.enums.role[r] }))} />
+        <div>
+          <p className="text-sm font-medium">{t.admin.roles.title}</p>
+          <p className="mb-2 text-xs text-faint">{t.admin.roles.note}</p>
+          <div className="flex flex-wrap gap-2">
+            {(["moderator", "finance", "admin"] as const).map((r) => {
+              const has = roles.includes(r);
+              return (
+                <Button
+                  key={r}
+                  size="sm"
+                  variant={has ? "primary" : "secondary"}
+                  loading={busy === `role-${r}`}
+                  onClick={() => {
+                    if (!confirm(`${has ? t.admin.roles.remove : t.admin.roles.grant}: ${t.enums.role[r]}?`)) return;
+                    call(`role-${r}`, "role", { role: r, grant: !has, reason: "Changed in admin dashboard" });
+                  }}
+                >
+                  {has ? "✓ " : "+ "}
+                  {t.enums.role[r]}
+                </Button>
+              );
+            })}
           </div>
-          <Button loading={busy === "role"} disabled={newRole === role} onClick={() => call("role", "role", { role: newRole, reason: "Changed in admin dashboard" })}>
-            {A.saveRole}
-          </Button>
         </div>
       )}
       {canPremium && (
@@ -352,7 +377,7 @@ export function AccountControls({ userId, email, role, isSelf, canRoles, canPrem
           {A.signOut}
         </Button>
       )}
-      {canErase && !isSelf && role !== "admin" && (
+      {canErase && !isSelf && !roles.includes("admin") && (
         <div className="space-y-2 rounded-xl border border-danger/30 p-3">
           <p className="text-xs text-danger">{A.eraseWarn}</p>
           <TextField label={A.typeEmail(email)} value={confirmEmail} onChange={(e) => setConfirmEmail(e.target.value)} autoComplete="off" />

@@ -1,5 +1,5 @@
-import { ok, route } from "@/server/http";
-import { getSessionUser } from "@/server/auth/session";
-import { discover } from "@/server/services/characters";
+import { ok, route } from "@/lib/server/http";
+import { currentUser } from "@/lib/server/access";
+import { discover } from "@/lib/server/characters";
 
-export const GET = route(async () => ok(await discover(await getSessionUser())));
+export const GET = route(async () => ok(await discover(await currentUser())));

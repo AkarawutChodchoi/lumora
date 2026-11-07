@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { containsSensitiveData, moderateText } from "@/server/services/moderation";
-import { can } from "@/server/domain/permissions";
+import { containsSensitiveData, moderateText } from "@/lib/server/moderation";
+import { can, NEEDS_2FA } from "@/lib/permissions";
 
 describe("moderation rules", () => {
   it("blocks sexual content involving minors (English and Thai)", () => {
@@ -31,17 +31,25 @@ describe("moderation rules", () => {
 });
 
 describe("role permissions", () => {
-  it("grants nothing to regular users", () => {
-    expect(can("user", "admin.view")).toBe(false);
-    expect(can("user", "billing.adjust")).toBe(false);
+  it("gives members no staff powers", () => {
+    expect(can(["member"], "admin.view")).toBe(false);
+    expect(can(["member"], "billing.adjust")).toBe(false);
   });
-  it("lets moderators review but not touch billing or AI config", () => {
-    expect(can("moderator", "reports.review")).toBe(true);
-    expect(can("moderator", "billing.adjust")).toBe(false);
-    expect(can("moderator", "ai.configure")).toBe(false);
+  it("splits moderation from money", () => {
+    expect(can(["moderator"], "reports.review")).toBe(true);
+    expect(can(["moderator"], "billing.adjust")).toBe(false);
+    expect(can(["moderator"], "ai.configure")).toBe(false);
+    expect(can(["finance"], "billing.adjust")).toBe(true);
+    expect(can(["finance"], "payments.recheck")).toBe(true);
+    expect(can(["finance"], "users.enforce")).toBe(false);
   });
-  it("gives admins everything and rejects unknown roles", () => {
-    expect(can("admin", "billing.adjust")).toBe(true);
-    expect(can("superuser", "admin.view")).toBe(false);
+  it("lets admins do everything and combines roles", () => {
+    expect(can(["admin"], "billing.adjust")).toBe(true);
+    expect(can(["admin"], "users.manage_roles")).toBe(true);
+    expect(can(["moderator", "finance"], "billing.view")).toBe(true);
+    expect(can(["superuser"], "admin.view")).toBe(false);
+  });
+  it("requires 2FA for every staff role", () => {
+    expect([...NEEDS_2FA].sort()).toEqual(["admin", "finance", "moderator"]);
   });
 });

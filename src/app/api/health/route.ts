@@ -1,12 +1,13 @@
-import { db } from "@/server/db";
-import { activeAiProvider, paymentsEnabled } from "@/server/config";
+import { sql } from "drizzle-orm";
+import { db } from "@/db";
+import { activeAiProvider, paymentsEnabled } from "@/lib/server/config";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   let database = "ok";
   try {
-    await db.$queryRaw`SELECT 1`;
+    await db.execute(sql`select 1`);
   } catch {
     database = "error";
   }

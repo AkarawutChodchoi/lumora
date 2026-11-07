@@ -33,7 +33,7 @@ function Block({ icon, title, children }: { icon: React.ReactNode; title: string
   return (
     <Card className="p-5 sm:p-6">
       <h2 className="mb-4 flex items-center gap-2 font-display text-lg font-bold">
-        <span className="text-accent">{icon}</span>
+        <span className="text-accent-ink">{icon}</span>
         {title}
       </h2>
       {children}

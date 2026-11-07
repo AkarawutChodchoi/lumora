@@ -32,7 +32,7 @@ export function StaffCharacterTools({
   const endpoint = `/api/admin/characters/${characterId}`;
   return (
     <div className="rounded-2xl border border-accent/30 bg-accent-soft/40 p-4">
-      <p className="mb-3 flex items-center gap-1.5 text-xs font-semibold tracking-wide text-accent uppercase">
+      <p className="mb-3 flex items-center gap-1.5 text-xs font-semibold tracking-wide text-accent-ink uppercase">
         <ShieldCheck className="size-4" /> {t.admin.account.staffTools} · {t.enums.publication[publicationStatus]}
       </p>
       <div className="flex flex-wrap gap-2">

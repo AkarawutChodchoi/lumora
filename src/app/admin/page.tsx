@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { Card, PageHeader } from "@/components/ui/misc";
 import { SelfTopUp } from "@/components/admin/admin-actions";
-import { can } from "@/server/domain/permissions";
-import { getBalance } from "@/server/services/credits";
-import { pageStaff } from "@/server/auth/current";
-import { overview } from "@/server/services/admin";
-import { AI_PROVIDER_LABEL, activeAiProvider, paymentsEnabled } from "@/server/config";
+import { can } from "@/lib/permissions";
+import { getBalance } from "@/lib/server/wallet";
+import { pageStaff } from "@/lib/server/access";
+import { overview } from "@/lib/server/admin";
+import { AI_PROVIDER_LABEL, activeAiProvider, paymentsEnabled } from "@/lib/server/config";
 import { getLocale, getT, pageTitle } from "@/i18n/server";
 import { INTL_LOCALE } from "@/i18n/config";
 
@@ -47,7 +47,7 @@ export default async function AdminOverview({ searchParams }: { searchParams: Pr
           </div>
         }
       />
-      {can(actor.role, "billing.adjust") && (
+      {can(actor.roles, "billing.adjust") && (
         <Card className="mb-6 flex flex-wrap items-center justify-between gap-3 p-4">
           <div className="min-w-0">
             <p className="font-semibold">{t.admin.account.selfTopUp}</p>
@@ -105,7 +105,7 @@ export default async function AdminOverview({ searchParams }: { searchParams: Pr
           <h2 className="font-semibold">{T.system}</h2>
           <p className="flex justify-between gap-2"><span className="text-muted">{T.provider}</span><span>{activeAiProvider() === "dev" ? T.devProvider : AI_PROVIDER_LABEL[activeAiProvider()]}</span></p>
           <p className="flex justify-between gap-2"><span className="text-muted">{T.payments}</span><span>{paymentsEnabled() ? T.configured : T.notConfigured}</span></p>
-          <p className="flex justify-between gap-2"><span className="text-muted">{T.openReports}</span><Link href="/admin/reports" className="text-accent">{o.openReports}</Link></p>
+          <p className="flex justify-between gap-2"><span className="text-muted">{T.openReports}</span><Link href="/admin/reports" className="text-accent-ink">{o.openReports}</Link></p>
         </Card>
       </div>
     </div>

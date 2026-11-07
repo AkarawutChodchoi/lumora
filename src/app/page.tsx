@@ -3,7 +3,7 @@ import { Brain, Feather, ShieldCheck, Sparkles, Wand2, MessagesSquare } from "lu
 import { ButtonLink } from "@/components/ui/button";
 import { Logo } from "@/components/layout/app-shell";
 import { LanguageSwitcher } from "@/components/i18n/language-switcher";
-import { currentUser } from "@/server/auth/current";
+import { currentUser } from "@/lib/server/access";
 import { getT } from "@/i18n/server";
 
 export const dynamic = "force-dynamic";
@@ -52,8 +52,8 @@ export default async function Landing() {
           {t.landing.features.map((f, i) => {
             const Icon = ICONS[i];
             return (
-              <div key={f.title} className="rounded-[var(--radius-card)] border border-line bg-surface/70 p-6">
-                <div className="mb-4 grid size-10 place-items-center rounded-xl bg-accent-soft text-accent">
+              <div key={f.title} className="rounded-2xl border border-line bg-surface/70 p-6">
+                <div className="mb-4 grid size-10 place-items-center rounded-xl bg-accent-soft text-accent-ink">
                   <Icon className="size-5" />
                 </div>
                 <h2 className="font-semibold">{f.title}</h2>

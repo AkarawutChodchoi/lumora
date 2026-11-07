@@ -1,12 +1,12 @@
-import { ok, parseJson, route } from "@/server/http";
-import { requireActiveUser } from "@/server/auth/guards";
-import { getSessionUser } from "@/server/auth/session";
-import { rateLimit } from "@/server/rate-limit";
-import { characterInputSchema, createCharacter, searchCharacters, searchSchema } from "@/server/services/characters";
+import { ok, parseJson, route } from "@/lib/server/http";
+import { requireActiveUser } from "@/lib/server/access";
+import { currentUser } from "@/lib/server/access";
+import { rateLimit } from "@/lib/server/rateLimit";
+import { characterInputSchema, createCharacter, searchCharacters, searchSchema } from "@/lib/server/characters";
 
 export const GET = route(async (req: Request) => {
   const params = searchSchema.parse(Object.fromEntries(new URL(req.url).searchParams));
-  return ok(await searchCharacters(params, await getSessionUser()));
+  return ok(await searchCharacters(params, await currentUser()));
 });
 
 export const POST = route(async (req: Request) => {

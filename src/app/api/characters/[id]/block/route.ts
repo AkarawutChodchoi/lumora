@@ -1,6 +1,6 @@
-import { ok, route } from "@/server/http";
-import { requireUser } from "@/server/auth/guards";
-import { setBlocked } from "@/server/services/characters";
+import { ok, route } from "@/lib/server/http";
+import { requireUser } from "@/lib/server/access";
+import { setBlocked } from "@/lib/server/characters";
 
 type Ctx = { params: Promise<{ id: string }> };
 

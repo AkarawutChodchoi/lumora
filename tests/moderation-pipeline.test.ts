@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { User } from "@prisma/client";
-import { db } from "@/server/db";
-import { setProviderOverride } from "@/server/ai/registry";
-import { ProviderError } from "@/server/ai/types";
-import { cancelGeneration, prepareGeneration, reapStaleGeneration, runGeneration, settleTestHooks, type ChatStreamEvent } from "@/server/services/chat";
-import { getOwnedConversation, listMessages, startConversation } from "@/server/services/conversations";
-import { getBalance, verifyLedgerConsistency } from "@/server/services/credits";
-import { SIGNUP_BONUS } from "@/server/domain/catalog";
-import { makeCharacter, makeUser, MockProvider, rid } from "./helpers";
+import { eq } from "drizzle-orm";
+import { db, schema } from "@/db";
+import type { AppUser as User } from "@/lib/server/access";
+import { setProviderOverride } from "@/lib/server/ai/registry";
+import { ProviderError } from "@/lib/server/ai/types";
+import { cancelGeneration, prepareGeneration, reapStaleGeneration, runGeneration, settleTestHooks, type ChatStreamEvent } from "@/lib/server/chat";
+import { getOwnedConversation, listMessages, startConversation } from "@/lib/server/conversations";
+import { getBalance, verifyLedgerConsistency } from "@/lib/server/wallet";
+import { SIGNUP_BONUS } from "@/lib/domain/catalog";
+import { ageGeneration, genLedger, get, makeCharacter, makeUser, MockProvider, rid } from "./helpers";
 
 // Text that moderateText blocks in AI output.
 const BLOCKED = ["This reply is ", "explicit porn."];
@@ -37,11 +38,11 @@ function streamedText(events: ChatStreamEvent[]) {
 }
 
 async function refundRows(generationId: string) {
-  return db.creditLedger.count({ where: { referenceId: generationId, type: "generation_refund" } });
+  return (await genLedger(generationId)).filter((r) => r.kind === "refund").length;
 }
 
 async function expectDiscardedAndRefunded(user: User, convId: string, generationId: string, assistantMessageId: string) {
-  const msg = await db.message.findUniqueOrThrow({ where: { id: assistantMessageId } });
+  const msg = (await get.message(assistantMessageId))!;
   expect(msg.content).toBe("");
   const visible = (await listMessages(user, convId, { limit: 30 })).items;
   expect(visible.map((m) => m.content).join("")).not.toMatch(/porn/);
@@ -110,7 +111,8 @@ describe("moderation runs before any exposure", () => {
   });
 
   it("cancel: text produced before Stop is discarded and the cancel is free", async () => {
-    setProviderOverride(new MockProvider([...BLOCKED, "never"], null, 600));
+    // trailing chunks keep the stream open long enough for the 1s cancel poll on a slow database
+    setProviderOverride(new MockProvider([...BLOCKED, "never", "never", "never", "never"], null, 600));
     const { user, conv } = await setup();
     const p = await prepare(user, conv.id);
     const events: ChatStreamEvent[] = [];
@@ -119,19 +121,19 @@ describe("moderation runs before any exposure", () => {
     await cancelGeneration(user, p.generationId);
     await run;
     expect(streamedText(events)).toBe("");
-    expect((await db.generation.findUniqueOrThrow({ where: { id: p.generationId } })).status).toBe("cancelled");
+    expect((await get.generation(p.generationId))!.status).toBe("cancelled");
     await expectDiscardedAndRefunded(user, conv.id, p.generationId, p.assistantMessageId);
-    expect((await db.message.findUniqueOrThrow({ where: { id: p.assistantMessageId } })).isActive).toBe(false);
+    expect((await get.message(p.assistantMessageId))!.isActive).toBe(false);
   });
 
   it("stale recovery: text left by a dead worker is discarded and refunded, not kept", async () => {
     const { user, conv } = await setup();
     const p = await prepare(user, conv.id);
     // An old worker (before this change) saved unreviewed partial text, then died.
-    await db.message.update({ where: { id: p.assistantMessageId }, data: { content: BLOCKED.join(""), status: "streaming" } });
-    await db.generation.update({ where: { id: p.generationId }, data: { status: "streaming", createdAt: new Date(Date.now() - 5 * 60_000) } });
+    await db.update(schema.message).set({ content: BLOCKED.join(""), status: "streaming" }).where(eq(schema.message.id, p.assistantMessageId));
+    await db.update(schema.generation).set({ status: "streaming", createdAt: new Date(Date.now() - 5 * 60_000) }).where(eq(schema.generation.id, p.generationId));
     expect(await reapStaleGeneration(conv.id)).toBe(false);
-    expect((await db.generation.findUniqueOrThrow({ where: { id: p.generationId } })).status).toBe("failed");
+    expect((await get.generation(p.generationId))!.status).toBe("failed");
     await expectDiscardedAndRefunded(user, conv.id, p.generationId, p.assistantMessageId);
   });
 });
@@ -148,10 +150,10 @@ describe("final outcome is settled atomically", () => {
     await runGeneration(user, p, (e) => events.push(e));
 
     // Nothing half-done: still running, still charged once, no refund, chat still locked, no text.
-    const gen = await db.generation.findUniqueOrThrow({ where: { id: p.generationId } });
+    const gen = (await get.generation(p.generationId))!;
     expect(gen.status).toBe("streaming");
     expect(gen.completedAt).toBeNull();
-    expect((await db.message.findUniqueOrThrow({ where: { id: p.assistantMessageId } })).content).toBe("");
+    expect((await get.message(p.assistantMessageId))!.content).toBe("");
     expect(await getBalance(user.id)).toBe(SIGNUP_BONUS - 1);
     expect(await refundRows(p.generationId)).toBe(0);
     expect((await getOwnedConversation(user, conv.id)).activeGenerationId).toBe(p.generationId);
@@ -160,9 +162,9 @@ describe("final outcome is settled atomically", () => {
 
     // Recovery: once the database works again, the stale reaper settles it with one refund.
     settleTestHooks.afterClaim = undefined;
-    await db.generation.update({ where: { id: p.generationId }, data: { createdAt: new Date(Date.now() - 5 * 60_000) } });
+    await ageGeneration(p.generationId);
     expect(await reapStaleGeneration(conv.id)).toBe(false);
-    expect((await db.generation.findUniqueOrThrow({ where: { id: p.generationId } })).status).toBe("failed");
+    expect((await get.generation(p.generationId))!.status).toBe("failed");
     expect(await getBalance(user.id)).toBe(SIGNUP_BONUS);
     expect(await refundRows(p.generationId)).toBe(1);
     expect((await verifyLedgerConsistency(user.id)).consistent).toBe(true);
@@ -171,7 +173,7 @@ describe("final outcome is settled atomically", () => {
   it("racing reapers settle a dead reply exactly once", async () => {
     const { user, conv } = await setup();
     const p = await prepare(user, conv.id);
-    await db.generation.update({ where: { id: p.generationId }, data: { createdAt: new Date(Date.now() - 5 * 60_000) } });
+    await ageGeneration(p.generationId);
     await Promise.all([reapStaleGeneration(conv.id), reapStaleGeneration(conv.id), reapStaleGeneration(conv.id)]);
     expect(await refundRows(p.generationId)).toBe(1);
     expect(await getBalance(user.id)).toBe(SIGNUP_BONUS);
@@ -182,7 +184,7 @@ describe("final outcome is settled atomically", () => {
     setProviderOverride(new MockProvider(["Hi ", "there"]));
     const { user, conv } = await setup();
     const p = await prepare(user, conv.id);
-    await db.generation.update({ where: { id: p.generationId }, data: { createdAt: new Date(Date.now() - 5 * 60_000) } });
+    await ageGeneration(p.generationId);
     // Hold each settle transaction open briefly so the two overlap.
     settleTestHooks.afterClaim = () => new Promise((r) => setTimeout(r, 400));
     const worker = runGeneration(user, p, () => {});
@@ -192,8 +194,8 @@ describe("final outcome is settled atomically", () => {
     })();
     await Promise.all([worker, reaper]);
 
-    const gen = await db.generation.findUniqueOrThrow({ where: { id: p.generationId } });
-    const msg = await db.message.findUniqueOrThrow({ where: { id: p.assistantMessageId } });
+    const gen = (await get.generation(p.generationId))!;
+    const msg = (await get.message(p.assistantMessageId))!;
     const refunds = await refundRows(p.generationId);
     if (gen.status === "completed") {
       expect(msg).toMatchObject({ status: "completed", content: "Hi there" });

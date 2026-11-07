@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { Badge, PageHeader } from "@/components/ui/misc";
-import { pageStaff } from "@/server/auth/current";
-import { searchUsers } from "@/server/services/admin";
-import { USER_STATUSES } from "@/server/domain/enums";
+import { pageStaff } from "@/lib/server/access";
+import { searchUsers } from "@/lib/server/admin";
+import { USER_STATUSES } from "@/lib/domain/enums";
 import { getLocale, getT, pageTitle } from "@/i18n/server";
 import { INTL_LOCALE } from "@/i18n/config";
 
@@ -22,14 +22,14 @@ export default async function AdminUsers({ searchParams }: { searchParams: Promi
     <div>
       <PageHeader title={t.titles.adminUsers} description={T.subtitle} />
       <form className="mb-5 flex flex-wrap gap-2" role="search">
-        <input name="q" defaultValue={q} placeholder={T.placeholder} aria-label={t.common.search} className="h-10 min-w-48 flex-1 rounded-xl border border-line bg-surface-2 px-3 text-sm" />
-        <select name="status" defaultValue={status ?? ""} aria-label={T.status} className="h-10 rounded-xl border border-line bg-surface-2 px-3 text-sm">
+        <input name="q" defaultValue={q} placeholder={T.placeholder} aria-label={t.common.search} className="h-10 min-w-48 flex-1 rounded-[10px] border border-line2 bg-field px-3 text-sm" />
+        <select name="status" defaultValue={status ?? ""} aria-label={T.status} className="h-10 rounded-[10px] border border-line2 bg-field px-3 text-sm">
           <option value="">{T.anyStatus}</option>
           {USER_STATUSES.map((s) => (
             <option key={s} value={s}>{t.enums.userStatus[s]}</option>
           ))}
         </select>
-        <button className="h-10 rounded-xl bg-accent px-4 text-sm font-semibold text-white">{t.common.search}</button>
+        <button className="h-10 cursor-pointer rounded-[10px] bg-accent px-4 text-sm font-bold text-on-accent">{t.common.search}</button>
       </form>
       <div className="overflow-x-auto rounded-2xl border border-line bg-surface">
         <table className="w-full text-sm">
@@ -46,10 +46,10 @@ export default async function AdminUsers({ searchParams }: { searchParams: Promi
             {users.map((u) => (
               <tr key={u.id} className="hover:bg-surface-2">
                 <td className="px-4 py-2.5">
-                  <Link href={`/admin/users/${u.id}`} className="font-medium text-accent hover:underline">{u.displayName}</Link>
+                  <Link href={`/admin/users/${u.id}`} className="font-medium text-accent-ink hover:underline">{u.displayName}</Link>
                   <span className="block text-xs text-faint">{u.email}</span>
                 </td>
-                <td className="px-4 py-2.5">{t.enums.role[u.role] ?? u.role}</td>
+                <td className="px-4 py-2.5">{u.roles.length ? u.roles.map((r) => t.enums.role[r] ?? r).join(", ") : t.enums.role.member}{u.roles.length > 0 && <span className={`ml-2 text-xs ${u.twoFactorEnabled ? "text-free" : "text-warn"}`}>{u.twoFactorEnabled ? t.admin.roles.twoFaOn : t.admin.roles.twoFaOff}</span>}</td>
                 <td className="px-4 py-2.5"><Badge tone={TONE[u.status as keyof typeof TONE] ?? "neutral"}>{t.enums.userStatus[u.status] ?? u.status}</Badge></td>
                 <td className="px-4 py-2.5 text-muted">{u.createdAt.toLocaleDateString(INTL_LOCALE[locale])}</td>
                 <td className="px-4 py-2.5 text-muted">{u.lastActiveAt.toLocaleDateString(INTL_LOCALE[locale])}</td>

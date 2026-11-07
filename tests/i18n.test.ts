@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { en } from "@/i18n/en";
 import { th } from "@/i18n/th";
 import { localizeMessage } from "@/i18n/errors";
-import { CATEGORIES, REPORT_CATEGORIES, MEMORY_TYPES, USER_STATUSES } from "@/server/domain/enums";
+import { CATEGORIES, REPORT_CATEGORIES, MEMORY_TYPES, USER_STATUSES } from "@/lib/domain/enums";
 
 /** Flatten a dictionary into path -> value, calling functions with sample arguments. */
 function flatten(obj: unknown, prefix = ""): Record<string, unknown> {

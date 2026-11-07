@@ -1,23 +1,26 @@
 import { notFound } from "next/navigation";
 import { Badge, Card, PageHeader } from "@/components/ui/misc";
-import { pageStaff } from "@/server/auth/current";
-import { db } from "@/server/db";
+import { pageStaff } from "@/lib/server/access";
+import { and, desc, eq } from "drizzle-orm";
+import { db, schema } from "@/db";
+import { getViewableCharacter, listVersions } from "@/lib/server/characters";
 import { getLocale, getT, pageTitle } from "@/i18n/server";
 import { INTL_LOCALE } from "@/i18n/config";
 
 export const generateMetadata = pageTitle("adminCharacter");
 
 export default async function AdminCharacter({ params }: { params: Promise<{ id: string }> }) {
-  await pageStaff("characters.moderate");
+  const actor = await pageStaff("characters.moderate");
   const [t, locale] = await Promise.all([getT(), getLocale()]);
   const T = t.admin.characters;
   const L = INTL_LOCALE[locale];
   const { id } = await params;
-  const c = await db.character.findUnique({ where: { id }, include: { owner: { select: { id: true, displayName: true } }, versions: { orderBy: { version: "desc" } } } });
-  if (!c) notFound();
+  const base = await getViewableCharacter(id, actor).catch(() => null);
+  if (!base) notFound();
+  const c = { ...base, versions: await listVersions(actor, id) };
   const [reports, audit] = await Promise.all([
-    db.report.findMany({ where: { targetType: "character", targetId: id }, orderBy: { createdAt: "desc" } }),
-    db.auditLog.findMany({ where: { targetType: "character", targetId: id }, orderBy: { createdAt: "desc" } }),
+    db.select().from(schema.report).where(and(eq(schema.report.targetType, "character"), eq(schema.report.targetId, id))).orderBy(desc(schema.report.createdAt)),
+    db.select().from(schema.auditLog).where(and(eq(schema.auditLog.targetType, "character"), eq(schema.auditLog.targetId, id))).orderBy(desc(schema.auditLog.id)),
   ]);
   return (
     <div className="space-y-6">
@@ -26,7 +29,7 @@ export default async function AdminCharacter({ params }: { params: Promise<{ id:
         <h2 className="mb-3 font-semibold">{T.revisions(c.versions.length)}</h2>
         <div className="space-y-3">
           {c.versions.map((v) => {
-            const s = JSON.parse(v.snapshot) as Record<string, string>;
+            const s = v.snapshot as Record<string, string>;
             return (
               <details key={v.id} className="rounded-xl border border-line p-3">
                 <summary className="cursor-pointer text-sm">
@@ -63,7 +66,7 @@ export default async function AdminCharacter({ params }: { params: Promise<{ id:
           {audit.map((a) => (
             <li key={a.id} className="py-2">
               <span className="font-mono text-xs">{a.action}</span> <span className="text-faint">{t.common.by(a.actorId ?? T.system)} · {a.createdAt.toLocaleString(L)}</span>
-              <p className="text-muted">{(JSON.parse(a.details) as { reason?: string }).reason}</p>
+              <p className="text-muted">{a.reason}</p>
             </li>
           ))}
           {audit.length === 0 && <li className="text-faint">{t.common.none}</li>}

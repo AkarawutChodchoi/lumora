@@ -1,12 +1,13 @@
 import { notFound } from "next/navigation";
 import { ChatView } from "@/components/chat/chat-view";
-import { pageUser } from "@/server/auth/current";
-import { activeAiProvider } from "@/server/config";
-import { db } from "@/server/db";
-import { listMessages } from "@/server/services/conversations";
-import { reapStaleGeneration } from "@/server/services/chat";
-import { getBalance } from "@/server/services/credits";
-import { modelOptions, resolveModel } from "@/server/ai/models";
+import { pageUser } from "@/lib/server/access";
+import { activeAiProvider } from "@/lib/server/config";
+import { eq } from "drizzle-orm";
+import { db, schema } from "@/db";
+import { listMessages } from "@/lib/server/conversations";
+import { reapStaleGeneration } from "@/lib/server/chat";
+import { getBalance } from "@/lib/server/wallet";
+import { modelOptions, resolveModel } from "@/lib/server/ai/models";
 import { pageTitle } from "@/i18n/server";
 
 export const dynamic = "force-dynamic";
@@ -15,11 +16,14 @@ export const generateMetadata = pageTitle("chat");
 export default async function ChatPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const user = await pageUser(`/chats/${id}`);
-  const conv = await db.conversation.findUnique({
-    where: { id },
-    include: { character: { select: { id: true, name: true, avatarUrl: true, tagline: true, publicationStatus: true } } },
-  });
-  if (!conv || conv.userId !== user.id) notFound();
+  const { conversation: cv, character: ch } = schema;
+  const [row] = await db
+    .select({ conv: cv, character: { id: ch.id, name: ch.name, avatarUrl: ch.avatarUrl, tagline: ch.tagline, publicationStatus: ch.publicationStatus } })
+    .from(cv)
+    .innerJoin(ch, eq(ch.id, cv.characterId))
+    .where(eq(cv.id, id));
+  if (!row || row.conv.userId !== user.id) notFound();
+  const conv = { ...row.conv, character: row.character };
 
   // A reply whose server worker died (e.g. the app was closed) is closed out here, not left spinning.
   const generating = conv.activeGenerationId ? await reapStaleGeneration(conv.id) : false;

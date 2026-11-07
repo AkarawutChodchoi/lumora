@@ -2,8 +2,8 @@ import { Heart, PlusCircle, Wand2 } from "lucide-react";
 import { CharacterGrid } from "@/components/characters/character-card";
 import { EmptyState, PageHeader } from "@/components/ui/misc";
 import { ButtonLink } from "@/components/ui/button";
-import { pageUser } from "@/server/auth/current";
-import { listFavorites, listOwnCharacters } from "@/server/services/characters";
+import { pageUser } from "@/lib/server/access";
+import { listFavorites, listOwnCharacters } from "@/lib/server/characters";
 import { getT, pageTitle } from "@/i18n/server";
 
 export const generateMetadata = pageTitle("library");

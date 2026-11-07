@@ -12,7 +12,7 @@ export function NavLink({ href, icon, label, variant }: { href: string; icon: Re
       <Link
         href={href}
         aria-current={active ? "page" : undefined}
-        className={`flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-medium ${active ? "text-accent" : "text-faint hover:text-fg"}`}
+        className={`flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-medium ${active ? "text-accent-ink" : "text-faint hover:text-fg"}`}
       >
         {icon}
         {label}
@@ -27,7 +27,7 @@ export function NavLink({ href, icon, label, variant }: { href: string; icon: Re
         active ? "bg-accent-soft text-fg" : "text-muted hover:bg-surface-2 hover:text-fg"
       }`}
     >
-      <span className={active ? "text-accent" : ""}>{icon}</span>
+      <span className={active ? "text-accent-ink" : ""}>{icon}</span>
       {label}
     </Link>
   );

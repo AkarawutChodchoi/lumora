@@ -1,6 +1,6 @@
-import { ok, parseJson, route } from "@/server/http";
-import { requirePermission } from "@/server/auth/guards";
-import { premiumSchema, setPremium } from "@/server/services/admin";
+import { ok, parseJson, route } from "@/lib/server/http";
+import { requirePermission } from "@/lib/server/access";
+import { premiumSchema, setPremium } from "@/lib/server/admin";
 
 type Ctx = { params: Promise<{ id: string }> };
 

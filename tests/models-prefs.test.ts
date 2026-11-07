@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { CHAT_MODELS, DEV_MODEL, availableModels, priceOf, resolveModel } from "@/server/ai/models";
-import { routeModel } from "@/server/ai/registry";
-import { assemblePrompt } from "@/server/ai/prompt";
-import { fallbackRefund } from "@/server/services/chat";
-import { toPublicUser, updateProfile } from "@/server/services/users";
-import { makeUser } from "./helpers";
+import { CHAT_MODELS, DEV_MODEL, availableModels, priceOf, resolveModel } from "@/lib/server/ai/models";
+import { routeModel } from "@/lib/server/ai/registry";
+import { assemblePrompt } from "@/lib/server/ai/prompt";
+import { fallbackRefund } from "@/lib/server/chat";
+import { toPublicUser, updateProfile } from "@/lib/server/users";
+import { makeUser, reload } from "./helpers";
 
 const character = { name: "Aria", description: "A bard", personality: "warm", backstory: "", scenario: "", exampleDialogues: "" };
 const budget = { contextTokens: 8000, memoryTokens: 500 };
@@ -49,11 +49,11 @@ describe("chat preferences", () => {
 
   it("saves the reply style and rejects models the deployment does not offer", async () => {
     const u = await makeUser();
-    const updated = await updateProfile(u, { responseStyle: "detailed" });
-    expect(toPublicUser(updated).responseStyle).toBe("detailed");
+    await updateProfile(u, { responseStyle: "detailed" });
+    expect(toPublicUser(await reload(u)).responseStyle).toBe("detailed");
     await expect(updateProfile(u, { chatModel: "gemini-3.8-flash" })).rejects.toMatchObject({ code: "validation_failed" });
-    const ok = await updateProfile(u, { chatModel: DEV_MODEL.id });
-    expect(ok.chatModel).toBe(DEV_MODEL.id);
+    await updateProfile(u, { chatModel: DEV_MODEL.id });
+    expect((await reload(u)).chatModel).toBe(DEV_MODEL.id);
   });
 });
 

@@ -5,7 +5,7 @@ import { Check, Search } from "lucide-react";
 import { Modal } from "./modal";
 import { Button } from "./button";
 import { useLocale, useT } from "@/i18n/client";
-import type { TaxonomyGroup } from "@/server/domain/taxonomy";
+import type { TaxonomyGroup } from "@/lib/domain/taxonomy";
 
 /**
  * Searchable, grouped chip picker in a dialog (bottom sheet on phones).
@@ -56,7 +56,7 @@ export function ChipPicker({
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t.picker.search}
             aria-label={t.picker.search}
-            className="h-10 w-full rounded-xl border border-line bg-surface-2 pr-3 pl-9 text-base placeholder:text-faint focus:border-accent focus:outline-none sm:text-sm"
+            className="h-10 w-full rounded-xl border border-line bg-surface-2 pr-3 pl-9 text-base placeholder:text-faint focus:border-line3 focus:outline-none sm:text-sm"
           />
         </div>
         <div className="scrollbar-thin -mx-1 flex-1 space-y-4 overflow-y-auto px-1 pb-2">
@@ -79,7 +79,7 @@ export function ChipPicker({
                         on ? "border-accent bg-accent-soft text-fg" : "border-line text-muted hover:border-line-strong hover:text-fg"
                       }`}
                     >
-                      {on && <Check className="size-3.5 text-accent" />}
+                      {on && <Check className="size-3.5 text-accent-ink" />}
                       {it[locale]}
                     </button>
                   );

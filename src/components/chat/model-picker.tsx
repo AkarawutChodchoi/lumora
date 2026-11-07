@@ -61,7 +61,7 @@ export function ModelList({ models, value, onChange }: { models: ModelOption[]; 
               <span className="flex shrink-0 items-center gap-1 rounded-full bg-surface-3 px-2.5 py-1 text-xs font-semibold">
                 <Coins className="size-3.5 text-warn" /> {t.chat.perReply(m.cost)}
               </span>
-              {selected && <Check className="size-4 shrink-0 text-accent" aria-hidden="true" />}
+              {selected && <Check className="size-4 shrink-0 text-accent-ink" aria-hidden="true" />}
             </button>
           </li>
         );
@@ -85,7 +85,7 @@ export function ModelPicker({ models, value, onChange }: { models: ModelOption[]
         aria-label={`${t.chat.pickModel}: ${current.label}`}
         aria-haspopup="dialog"
       >
-        <Sparkles className="size-3.5 shrink-0 text-accent" />
+        <Sparkles className="size-3.5 shrink-0 text-accent-ink" />
         <span className="truncate">{current.label}</span>
         <span className="shrink-0 text-faint">· {current.cost}</span>
         <Coins className="size-3 shrink-0 text-warn" />

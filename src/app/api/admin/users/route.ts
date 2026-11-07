@@ -1,6 +1,6 @@
-import { ok, route } from "@/server/http";
-import { requirePermission } from "@/server/auth/guards";
-import { searchUsers, userSearchSchema } from "@/server/services/admin";
+import { ok, route } from "@/lib/server/http";
+import { requirePermission } from "@/lib/server/access";
+import { searchUsers, userSearchSchema } from "@/lib/server/admin";
 
 export const GET = route(async (req: Request) => {
   await requirePermission("users.view");

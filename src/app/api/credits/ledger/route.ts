@@ -1,6 +1,6 @@
-import { ok, route } from "@/server/http";
-import { requireUser } from "@/server/auth/guards";
-import { listLedger } from "@/server/services/credits";
+import { ok, route } from "@/lib/server/http";
+import { requireUser } from "@/lib/server/access";
+import { listLedger } from "@/lib/server/wallet";
 
 export const GET = route(async (req: Request) => {
   const cursor = new URL(req.url).searchParams.get("cursor") ?? undefined;

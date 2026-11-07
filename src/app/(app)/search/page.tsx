@@ -3,8 +3,8 @@ import { SearchX } from "lucide-react";
 import { CharacterGrid } from "@/components/characters/character-card";
 import { SearchFilters } from "@/components/discover/search-filters";
 import { EmptyState, PageHeader } from "@/components/ui/misc";
-import { currentUser } from "@/server/auth/current";
-import { searchCharacters, searchSchema } from "@/server/services/characters";
+import { currentUser } from "@/lib/server/access";
+import { searchCharacters, searchSchema } from "@/lib/server/characters";
 import { getT, pageTitle } from "@/i18n/server";
 
 export const generateMetadata = pageTitle("search");
@@ -35,12 +35,12 @@ export default async function SearchPage({ searchParams }: { searchParams: SP })
           name="q"
           defaultValue={params.q}
           placeholder={t.search.placeholder}
-          className="h-11 min-w-0 flex-1 rounded-xl border border-line bg-surface-2 px-4 placeholder:text-faint focus:border-accent focus:outline-none"
+          className="h-11 min-w-0 flex-1 rounded-xl border border-line bg-surface-2 px-4 placeholder:text-faint focus:border-line3 focus:outline-none"
         />
         {params.category && <input type="hidden" name="category" value={params.category} />}
         {params.tag && <input type="hidden" name="tag" value={params.tag} />}
         <input type="hidden" name="sort" value={params.sort} />
-        <button className="h-11 rounded-xl bg-accent px-5 text-sm font-semibold text-white hover:bg-accent-strong">{t.common.search}</button>
+        <button className="h-11 rounded-xl bg-accent px-5 text-sm font-semibold text-on-accent hover:opacity-90">{t.common.search}</button>
       </form>
 
       <SearchFilters params={{ q: params.q, category: params.category, tag: params.tag, sort: params.sort }} />

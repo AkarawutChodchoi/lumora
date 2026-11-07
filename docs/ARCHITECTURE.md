@@ -1,102 +1,91 @@
-# Lumora AI — Architecture
+# Lumora AI — Architecture (v2)
+
+Version 2 moves Lumora onto Alinmanga's stack and structure: Next.js 16 + Drizzle/Neon +
+better-auth with 2FA + gateway-based payments + multi-role permissions + the Alinmanga
+design system. Lumora's chat, character, memory and moderation logic is unchanged in
+behaviour; it was ported from Prisma to Drizzle.
 
 ## Decisions
 
-| Topic | Spec suggestion | What we built | Why |
-|---|---|---|---|
-| Client | Flutter mobile apps | Responsive web app (mobile-first, with bottom nav) | One codebase that runs on phones, tablets and desktop. Flutter would need a second codebase and store accounts, and it can be added later against the same API |
-| Backend | NestJS | Next.js route handlers plus a service layer (`src/server/services`) | One TypeScript project. Business logic lives in framework-free services, so moving to NestJS later means moving controllers, not logic |
-| Database | PostgreSQL | Prisma with SQLite in dev and PostgreSQL in prod | No local database install is needed to develop. Enum-like columns are strings validated with Zod because SQLite has no enums |
-| Cache/queue | Redis when needed | Not used yet | The single-instance rate limiter is in-memory. Swap in Redis before horizontal scaling |
-| Media | S3 storage | `https://` image URLs, with a generated gradient portrait as fallback | Object storage needs credentials. Uploads are listed as pending in CHECKLIST |
+| Topic | Choice | Why |
+|---|---|---|
+| Framework | Next.js 16, `src/proxy.ts` (was `middleware.ts`), route handlers for the chat/character API, server actions for payments | Same as Alinmanga; the SSE chat stream needs a route handler |
+| Database | Drizzle ORM, node-postgres `Pool` | Alinmanga uses Drizzle on Neon. node-postgres (not neon-http) because the chat engine needs interactive transactions (row locks for the wallet and the conversation lock), and it also works with a plain Postgres in CI |
+| Accounts | better-auth (scrypt, DB sessions, TOTP 2FA, DB-backed rate limits) | Same as Alinmanga; replaces the hand-written argon2/session code |
+| Roles | `user_role` table, several roles per user, staff powers need 2FA | Same as Alinmanga (`moderator`, `finance`, `admin`) |
+| Payments | `Gateway` interface: Omise PromptPay (prod) and mock (dev/tests), webhook + poll + reconcile all call one idempotent `settle()` | Same as Alinmanga; replaces the provider-neutral HMAC webhook |
+| Wallet | `wallet(paid, bonus)` + append-only `coin_ledger` with unique `reference` | Alinmanga's two buckets plus Lumora's idempotency keys |
+| Lumora Plus | `membership` periods bought by QR (30/90 days), staff grants have no payment | One-off QR payments can't auto-renew, so periods stack |
+| Theme | CSS variables on `<html data-theme data-accent data-text>`, cookies for first paint, `user.prefs` for other devices | No flash on load; follows the user across devices |
 
-Where specs conflicted (e.g. Prompt 00 "stop for approval" vs. the master prompt "keep going"), we prioritised security and correctness and confirmed scope with the owner before starting.
-
-## Request flow
+## Layout
 
 ```
-Browser ──► middleware (guest redirect for private pages; Origin check on API writes)
-        ──► Server Components ──► services ──► Prisma
-        ──► /api/* route handlers ──► Zod validation ──► guards (requireUser / requirePermission) ──► services
+src/db/                      schema.ts (all tables), index.ts (pool + helpers)
+src/proxy.ts                 guest redirect for private pages, Origin check on API writes
+src/lib/permissions.ts       roles × permissions (shared by server and UI)
+src/lib/domain/              catalog (packs, plans), enums, taxonomy
+src/lib/server/              auth.ts (better-auth), access.ts (current user, guards, 2FA rule),
+                             wallet.ts, rateLimit.ts, audit.ts, notify.ts, payments/*,
+                             chat.ts, conversations.ts, characters.ts, memory.ts, admin.ts …
+src/lib/server/ai/           providers, prompt assembly, model routing
+src/app/(app)/               member pages (Alinmanga header + phone bottom tabs)
+src/app/(focus)/chats/[id]   full-screen chat
+src/app/admin/               back office (sidebar, permission-filtered menu)
+src/app/api/                 JSON API, /api/auth/[...all], webhooks, cron
+drizzle/                     SQL migrations
+scripts/                     migrate, seed, grant-role, reconcile
 ```
-
-All authorization happens on the server, in services or guards. The client never sends prices, balances, roles, ownership or entitlements, and nothing it sends is used to decide them.
 
 ## Data model (summary)
 
-See `prisma/schema.prisma` (commented).
-
-- **User**: role (`user|moderator|admin`), status (`active|restricted|suspended|deletion_requested`), age/mature flags, memory toggle.
-- **Session**: HMAC-hashed token, fixed 30-day expiry, revocable. **PasswordResetToken**: hashed, 30 minutes, single use.
-- **Character**: `visibility` (private/unlisted/public) × `publicationStatus` (draft/published/hidden/suspended) × `contentRating`.
-- **CharacterVersion**: an immutable snapshot of prompt fields. A new version is created only when prompt fields change.
-- **Conversation**: pinned to `characterVersionId`, holds `activeGenerationId` (concurrency lock) and `nextSequence`.
-- **Message**: append-only `sequence`. `isActive=false` hides replaced variants (regenerate/edit) without breaking order.
-- **Generation**: one row per AI call. Holds the idempotency key, model, real provider token usage, latency, status and cost.
-- **Memory**: user × character scoped, with type, slot `key`, source/provenance, confidence, importance, `supersededById`, `expiresAt`.
-- **CreditAccount + CreditLedger**: the balance plus an append-only ledger with unique idempotency keys.
-- **Purchase, PaymentEvent, SubscriptionRecord**: payment-side records. Events are unique per `(provider, eventId)`.
-- **Report, Enforcement, Appeal, AuditLog, AppSetting**: moderation records, the audit log and admin-editable settings.
+- Auth: `user` (profile, status, bannedAt, 2FA flag, prefs), `session`, `account`, `verification`, `two_factor`, `rate_limit`.
+- Roles & audit: `user_role`, `audit_log` (before/after/reason/ip, append only).
+- Characters: `character` (tags/categories as text arrays), `character_version` (JSON snapshot), `favorite`, `character_block`, `image`.
+- Chat: `conversation` (activeGenerationId lock, nextSequence), `message` (append-only sequence), `generation` (one per AI call, idempotency key).
+- Memory: `memory` scoped by (user, character), slot keys, provenance.
+- Money: `wallet`, `coin_ledger`, `payment`, `webhook_event`, `membership`.
+- Safety: `report`, `enforcement`, `appeal`. Settings: `site_setting`. Inbox: `notification`.
 
 ## Chat message lifecycle
 
-1. `POST /api/conversations/:id/messages` with `{mode: send|regenerate|edit, clientRequestId}`.
-2. **prepare** (before streaming, so failures come back as normal JSON errors): ownership check → status/character checks → input moderation → route model by entitlement → take the conversation lock (`UPDATE … WHERE activeGenerationId IS NULL`; stale locks over 5 minutes are reclaimed) → one transaction that creates the Generation (unique `userId+clientRequestId` rejects duplicates), the user message, the assistant placeholder (`pending`) and the coin charge (`gen:<id>:charge`).
-3. **run**: explicit memories are extracted from the user message → the prompt is assembled → the provider streams → SSE events `start / delta / done | error`. Partial text is saved about every 800 ms. Cancel requests are polled from the DB every second, so cancelling works across instances.
-4. **finish**: output moderation → message `completed` and generation `completed` with provider usage → lock released.
-   - Failure or refusal: message `failed`, refund (`gen:<id>:refund`, idempotent), lock released.
-   - Cancel: message `cancelled`. Free if no text was produced yet.
-   - **Client disconnect** does not cancel. Generation finishes and is saved, and the UI re-syncs from the server.
+Unchanged from v1: `prepareGeneration` validates, moderates the input, takes the
+conversation lock, and in one transaction creates the generation, messages and the coin
+charge (`gen:<id>:charge`, bonus coins first). `runGeneration` streams, buffers and
+moderates the whole reply before saving or sending it. `settle` (chat) finalises in one
+transaction: completed / failed (full refund `gen:<id>:refund`, to the same buckets) /
+cancelled (free). Stale replies (dead workers) are closed out and refunded.
 
-Regeneration policy: the old reply is kept (inactive) and the new reply is appended. Edit: only the latest user message can be edited. It and its reply are deactivated and replaced.
+## Payments
 
-Character versions: existing chats keep the version they started with, and new chats use the latest version.
-
-## AI engine (`src/server/ai`)
-
-- `types.ts`: `AIProvider`, `GenerateRequest`, `StreamEvent`, `TokenUsage`, and `ProviderError` (kinds: authentication, rate_limit, timeout, content_policy, provider, invalid_request, cancelled). Error messages are safe to show users.
-- `providers/anthropic.ts`: official SDK, `beta.messages.stream`, system blocks with prompt caching on the stable prefix, `output_config.effort`, and server-side refusal fallback (`fallbacks: "default"`) on models that support it. SDK retries cover transient 429/5xx before the stream starts. Usage includes cache read/creation tokens.
-- `providers/dev.ts`: labelled placeholder, never presented as AI. `__dev_fail__` simulates a provider failure.
-- `registry.ts`: provider selection plus model routing by entitlement tier. Tests inject a mock provider. **Adding a provider = one adapter file + one line in `getProvider`**, with no change to the chat service.
-- `prompt.ts`: assembles in this fixed order: system policy → `<character>` → `<scenario>` → `<memories>` → history → latest message. Everything after the policy is user-generated, tag-escaped and declared to be data. A token budget fills history newest-first, so the latest message is always kept. The memory section has its own budget.
-- `tokens.ts`: a conservative estimate used only for budgeting (Thai is weighted heavier). Billing and metrics use provider-reported usage only.
-
-## Memory
-
-Pipeline: rule-based extraction of **explicit** statements (EN + TH: name, pronouns, likes/dislikes, favorites, birthday, "remember that…") → sensitive-data filter (cards, Thai ID numbers, passwords) → dedupe by exact content → conflict resolution by slot key (the newest explicit statement wins, the old one is kept as `supersededById` for provenance) → per-plan limit (lowest importance and oldest expire first) → retrieval scored by importance, keyword overlap, recency and confidence, within a token budget.
-
-- Isolation: every query is scoped by `(userId, characterId)`. Tested.
-- Episodic memories expire after 180 days. Users can view, add, edit, delete or clear memories and can switch extraction off.
-- The model never stores inferred guesses as facts. LLM-based inference (`ai_inferred`, lower confidence, labelled "inferred" in prompts) and vector search are planned extensions, to add when quality data justifies them.
-
-## Coins & entitlements
-
-- Every balance change is a ledger row in the same transaction as the balance update. Spending uses a conditional atomic decrement (`balance >= cost`), so concurrent requests cannot overdraw. Tested with 12 parallel spends against 5 coins.
-- Idempotency keys: `signup:<user>`, `daily:<user>:<date>`, `gen:<id>:charge|refund`, `purchase:<provider>:<ref>`, `subgrant:<provider>:<ref>:<periodEnd>`, `admin:<actor>:<requestId>`.
-- Entitlements (`modelTier`, `monthlyCreditAllowance`, `memoryLimit`, `features`) are derived from verified `SubscriptionRecord`s and `PLANS` in `domain/catalog.ts`, never from the client.
-- The webhook verifies an HMAC signature with a 5-minute tolerance, inserts the event first (duplicates are rejected by a unique key), checks amounts against the catalog price, then applies the effect atomically.
+1. `createPayment(productId)` (server action): price from the catalog, at most 3 open QR codes and 5 attempts/min per user; the payment row is written before calling the gateway.
+2. The customer pays the QR. The gateway calls `POST /api/webhooks/payment/<gateway>`: signature checked, raw event stored once per `(gateway, event_id)`, then `settle()` asks the gateway API for the charge.
+3. `settle()` credits only if the gateway says paid with the exact amount/currency/payment id: one transaction marks the payment paid (only from an unpaid state), writes `topup` (paid coins) and `bonus` rows, or a `membership` period plus its coin allowance. Wrong amount → `mismatch` for staff review.
+4. The result page polls `getPayment()`, the admin "re-check" button and the daily reconcile call the same `settle()`.
 
 ## Security controls
 
 | Threat | Control |
 |---|---|
-| Password theft | Argon2id (19 MiB, t=2). Timing equalised for unknown emails. Generic login errors |
-| Session theft/forgery | 256-bit random tokens. Only an HMAC (keyed by `SESSION_SECRET`) is stored. httpOnly, SameSite=Lax, Secure in prod. Revoked on logout, password change and suspension |
-| CSRF | SameSite cookies plus an Origin/Sec-Fetch-Site check on all non-GET API calls |
-| IDOR | Every resource is loaded with an owner/visibility check. Another user's private data returns 404 (not 403) to avoid revealing it exists |
-| Brute force / abuse | Rate limits on register, login (per IP and per account), reset, chat, reports, appeals and character creation |
-| Injection | Prisma parameterised queries. React escaping (no `dangerouslySetInnerHTML`). Zod on every input |
-| Prompt injection | Policy-first prompt, tag escaping, untrusted data declared as data, flag metrics. Character prompts are hidden from non-owners |
-| Secret leakage | Keys only in env. Logger redacts secret-like keys. No message content in logs. Admin settings store no secrets |
-| Clickjacking etc. | `X-Frame-Options: DENY`, `nosniff`, a strict referrer policy and a permissions policy |
+| Password theft | scrypt (better-auth), 8–128 chars with a letter and a number, generic errors |
+| Account takeover | TOTP 2FA (required for staff powers), backup codes, sign-in rate limit 5/min, 2FA verify 5/min |
+| Session theft | DB sessions, httpOnly SameSite=Lax cookies (`lumora.*`, Secure on https), revoked on password reset, role change, suspension |
+| CSRF | SameSite cookies, better-auth origin check, Origin/Sec-Fetch-Site check on all other non-GET API calls |
+| IDOR | Every resource loaded with an owner/visibility check; other users' private data returns 404 |
+| Privilege escalation | Permission checks on the server (route guard and again inside services); dormant staff roles without 2FA |
+| Payment fraud | Prices server-side only; coins only from gateway-confirmed charges with exact amount; webhook signatures (5-minute window); unique ledger references; CHECK balance ≥ 0 |
+| Abuse | DB-backed rate limits (sign-up, sign-in, reset, chat, reports, appeals, uploads, payments, polling) |
+| Injection | Drizzle parameterised SQL, React escaping, Zod on every input |
+| Headers | X-Frame-Options DENY, nosniff, strict referrer, permissions policy, HSTS |
 
-## Roles & permissions
+## Moving production to v2
 
-`src/server/domain/permissions.ts`. Code checks permissions, never role names.
+Production (https://lumora-nine-rose.vercel.app) still runs v1 on the Neon `public` schema.
+v2's tables are different (better-auth accounts, wallet buckets, new money tables), and
+v1 password hashes are argon2 while better-auth uses scrypt. Options:
 
-| Permission | moderator | admin |
-|---|---|---|
-| admin.view, users.view, users.enforce, characters.moderate, reports.review, appeals.decide, audit.view | ✓ | ✓ |
-| users.process_deletion, billing.view, billing.adjust, ai.configure | | ✓ |
-
-Moderators cannot act on staff accounts, and nobody can act on their own account. Every privileged action writes an AuditLog row with a reason.
+1. **Fresh start** (simplest): point v2 at a new database; members sign up again.
+2. **Migrate**: copy users (as better-auth `user` + `account` rows with a custom
+   `password.verify` that accepts the old argon2 hashes), characters, versions,
+   conversations, messages, memories, and convert each credit balance to a `bonus`
+   wallet with one opening ledger row. Write and dry-run this script on a Neon branch first.

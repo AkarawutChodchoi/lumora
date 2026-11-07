@@ -1,8 +1,8 @@
-import { ok, parseJson, route } from "@/server/http";
+import { ok, parseJson, route } from "@/lib/server/http";
 type Ctx = { params: Promise<{ id: string }> };
 import { z } from "zod";
-import { requireActiveUser } from "@/server/auth/guards";
-import { publishCharacter, unpublishCharacter } from "@/server/services/characters";
+import { requireActiveUser } from "@/lib/server/access";
+import { publishCharacter, unpublishCharacter } from "@/lib/server/characters";
 
 export const POST = route(async (req: Request, { params }: Ctx) => {
   const { id } = await params;

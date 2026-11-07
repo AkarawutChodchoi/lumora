@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { db } from "@/server/db";
-import { setProviderOverride } from "@/server/ai/registry";
-import { cleanNote, maybeScanConversation, NOTE_REFRESH_MS, parseScan, SCAN_EVERY } from "@/server/services/auto-memory";
-import { enforceLimit, listMemories } from "@/server/services/memory";
-import { startConversation } from "@/server/services/conversations";
-import { prepareGeneration, runGeneration } from "@/server/services/chat";
-import { makeCharacter, makeUser, MockProvider, rid } from "./helpers";
+import { eq } from "drizzle-orm";
+import { db, schema } from "@/db";
+import { setProviderOverride } from "@/lib/server/ai/registry";
+import { cleanNote, maybeScanConversation, NOTE_REFRESH_MS, parseScan, SCAN_EVERY } from "@/lib/server/auto-memory";
+import { enforceLimit, listMemories } from "@/lib/server/memory";
+import { startConversation } from "@/lib/server/conversations";
+import { prepareGeneration, runGeneration } from "@/lib/server/chat";
+import { makeCharacter, makeUser, MockProvider, rid, get } from "./helpers";
 
 afterEach(() => setProviderOverride(null));
 
@@ -49,15 +50,15 @@ describe("automatic memory scans", () => {
 
   it("refreshes a day-old note after just one new message", async () => {
     const { user, conv } = await chatTimes(1);
-    await db.conversation.update({ where: { id: conv.id }, data: { note: "old note", noteAt: new Date(Date.now() - NOTE_REFRESH_MS - 60_000) } });
+    await db.update(schema.conversation).set({ note: "old note", noteAt: new Date(Date.now() - NOTE_REFRESH_MS - 60_000) }).where(eq(schema.conversation.id, conv.id));
     setProviderOverride(new MockProvider(['{"memories":[],"note":"new note"}']));
     expect(await maybeScanConversation(user, conv.id)).toMatchObject({ scanned: true });
-    expect((await db.conversation.findUniqueOrThrow({ where: { id: conv.id } })).note).toBe("new note");
+    expect((await get.conversation(conv.id))!.note).toBe("new note");
   });
 
   it("keeps waiting when the note is still recent", async () => {
     const { user, conv } = await chatTimes(1);
-    await db.conversation.update({ where: { id: conv.id }, data: { note: "fresh note", noteAt: new Date() } });
+    await db.update(schema.conversation).set({ note: "fresh note", noteAt: new Date() }).where(eq(schema.conversation.id, conv.id));
     expect(await maybeScanConversation(user, conv.id)).toMatchObject({ scanned: false, reason: "not_enough_messages" });
   });
 
@@ -82,7 +83,7 @@ describe("automatic memory scans", () => {
     // "the user" from the model is normalised to the placeholder.
     expect(cave?.content).toBe("{{user}} and the character found a hidden cave.");
     expect(mems.some((m) => m.content.includes("password"))).toBe(false);
-    const after = await db.conversation.findUniqueOrThrow({ where: { id: conv.id } });
+    const after = (await get.conversation(conv.id))!;
     expect(after.note).toBe("ถ้ำนั้นยังรอเราอยู่นะ");
     // The same messages are not scanned twice.
     expect(await maybeScanConversation(user, conv.id)).toMatchObject({ scanned: false });
@@ -108,7 +109,7 @@ describe("memory character budget", () => {
     const { user, character } = await chatTimes(0);
     const big = "x".repeat(8000);
     for (const [importance, tag] of [[1, "low"], [5, "high"], [3, "mid"]] as const) {
-      await db.memory.create({ data: { userId: user.id, characterId: character.id, type: "world", content: `${tag} ${big}`, source: "user_edited", importance } });
+      await db.insert(schema.memory).values({ userId: user.id, characterId: character.id, type: "world", content: `${tag} ${big}`, source: "user_edited", importance });
     }
     await enforceLimit(user.id, character.id);
     const kept = (await listMemories(user, character.id)).map((m) => m.content.split(" ")[0]);

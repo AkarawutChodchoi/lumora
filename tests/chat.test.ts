@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { db } from "@/server/db";
-import { setProviderOverride } from "@/server/ai/registry";
-import { ProviderError } from "@/server/ai/types";
-import { cancelGeneration, prepareGeneration, runGeneration, type ChatStreamEvent } from "@/server/services/chat";
-import { getOwnedConversation, listMessages, startConversation } from "@/server/services/conversations";
-import { getBalance, postLedgerEntry, verifyLedgerConsistency } from "@/server/services/credits";
-import { addMemory } from "@/server/services/memory";
-import { SIGNUP_BONUS } from "@/server/domain/catalog";
-import { makeCharacter, makeUser, MockProvider, rid } from "./helpers";
+import { and, count, eq } from "drizzle-orm";
+import { db, schema } from "@/db";
+import { setProviderOverride } from "@/lib/server/ai/registry";
+import { ProviderError } from "@/lib/server/ai/types";
+import { cancelGeneration, prepareGeneration, runGeneration, type ChatStreamEvent } from "@/lib/server/chat";
+import { getOwnedConversation, listMessages, startConversation } from "@/lib/server/conversations";
+import { getBalance, verifyLedgerConsistency } from "@/lib/server/wallet";
+import { addMemory } from "@/lib/server/memory";
+import { SIGNUP_BONUS } from "@/lib/domain/catalog";
+import { drain, get, makeCharacter, makeUser, MockProvider, rid, setUser } from "./helpers";
 
 afterEach(() => setProviderOverride(null));
 
@@ -41,7 +42,7 @@ describe("chat pipeline", () => {
     ]);
     expect(items[2].content).toBe("Hi traveler");
     expect(await getBalance(user.id)).toBe(SIGNUP_BONUS - 1);
-    const gen = await db.generation.findFirstOrThrow({ where: { conversationId: conv.id } });
+    const [gen] = await db.select().from(schema.generation).where(eq(schema.generation.conversationId, conv.id));
     expect(gen).toMatchObject({ status: "completed", inputTokens: 120, outputTokens: 30 });
   });
 
@@ -112,7 +113,7 @@ describe("chat pipeline", () => {
 
   it("refuses to generate without enough coins and creates no messages", async () => {
     const { user, conv } = await setup();
-    await postLedgerEntry({ userId: user.id, delta: -SIGNUP_BONUS, type: "generation_charge", idempotencyKey: `drain:${rid()}` });
+    await drain(user.id, SIGNUP_BONUS);
     await expect(prepareGeneration(user, conv.id, { mode: "send", content: "hi", clientRequestId: rid() })).rejects.toMatchObject({ code: "insufficient_credits" });
     expect((await listMessages(user, conv.id, { limit: 30 })).items).toHaveLength(1);
     expect((await getOwnedConversation(user, conv.id)).activeGenerationId).toBeNull();
@@ -127,7 +128,8 @@ describe("chat pipeline", () => {
     await runGeneration(user, p, () => {});
     const items = (await listMessages(user, conv.id, { limit: 30 })).items;
     expect(items.map((m) => m.content)).toEqual(["Hello, traveler!", "Hello Aria", "second"]);
-    expect(await db.message.count({ where: { conversationId: conv.id, isActive: false } })).toBe(1);
+    const [{ n }] = await db.select({ n: count() }).from(schema.message).where(and(eq(schema.message.conversationId, conv.id), eq(schema.message.isActive, false)));
+    expect(n).toBe(1);
   });
 
   it("edits the latest user message and replaces the reply", async () => {
@@ -148,7 +150,7 @@ describe("chat pipeline", () => {
     await new Promise((r) => setTimeout(r, 200));
     await cancelGeneration(user, p.generationId);
     await run;
-    const gen = await db.generation.findUniqueOrThrow({ where: { id: p.generationId } });
+    const gen = (await get.generation(p.generationId))!;
     expect(gen.status).toBe("cancelled");
     expect(await getBalance(user.id)).toBe(SIGNUP_BONUS);
     expect((await getOwnedConversation(user, conv.id)).activeGenerationId).toBeNull();
@@ -174,7 +176,7 @@ describe("chat pipeline", () => {
     const conv = await startConversation(adult, character.id);
     await send(adult, conv.id, "hello");
     expect(mock.requests[0].systemBlocks[0].text).toContain("Content level: MATURE");
-    const optedOut = await db.user.update({ where: { id: adult.id }, data: { matureContentEnabled: false } });
+    const optedOut = await setUser(adult, { matureContentEnabled: false });
     await expect(prepareGeneration(optedOut, conv.id, { mode: "send", content: "again", clientRequestId: rid() })).rejects.toMatchObject({ code: "forbidden" });
   });
 

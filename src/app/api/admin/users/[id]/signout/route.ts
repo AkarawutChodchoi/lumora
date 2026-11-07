@@ -1,6 +1,6 @@
-import { ok, route } from "@/server/http";
-import { requirePermission } from "@/server/auth/guards";
-import { forceSignOut } from "@/server/services/admin";
+import { ok, route } from "@/lib/server/http";
+import { requirePermission } from "@/lib/server/access";
+import { forceSignOut } from "@/lib/server/admin";
 
 type Ctx = { params: Promise<{ id: string }> };
 

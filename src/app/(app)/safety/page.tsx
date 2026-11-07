@@ -1,8 +1,8 @@
 import { PageHeader } from "@/components/ui/misc";
 import { SafetyCenter } from "@/components/safety/safety-center";
-import { pageUser } from "@/server/auth/current";
-import { listBlocked } from "@/server/services/characters";
-import { listMyEnforcements, listMyReports } from "@/server/services/reports";
+import { pageUser } from "@/lib/server/access";
+import { listBlocked } from "@/lib/server/characters";
+import { listMyEnforcements, listMyReports } from "@/lib/server/reports";
 import { getT, pageTitle } from "@/i18n/server";
 
 export const generateMetadata = pageTitle("safety");

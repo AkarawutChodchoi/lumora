@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { GenerateRequest, StreamEvent } from "@/server/ai/types";
+import type { GenerateRequest, StreamEvent } from "@/lib/server/ai/types";
 
 // Fake the Google SDK: each test sets what generateContentStream yields or throws.
 const state: { chunks: unknown[]; error: unknown; lastArgs: unknown; errorFor: Record<string, unknown>; calls: string[] } = { chunks: [], error: null, lastArgs: null, errorFor: {}, calls: [] };
@@ -35,7 +35,7 @@ vi.mock("@google/genai", () => {
   };
 });
 
-const { GeminiProvider } = await import("@/server/ai/providers/gemini");
+const { GeminiProvider } = await import("@/lib/server/ai/providers/gemini");
 const { ApiError } = await import("@google/genai");
 
 const req = (over: Partial<GenerateRequest> = {}): GenerateRequest => ({

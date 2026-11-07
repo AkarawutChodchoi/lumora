@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { db } from "@/server/db";
-import { sniffImage, storeImage } from "@/server/services/images";
-import { characterInputSchema, createCharacter, searchCharacters, toCard } from "@/server/services/characters";
-import { profileSchema } from "@/server/services/users";
-import { characterInput, makeCharacter, makeUser } from "./helpers";
+import { sniffImage, storeImage } from "@/lib/server/images";
+import { characterInputSchema, createCharacter, searchCharacters, toCard } from "@/lib/server/characters";
+import { profileSchema } from "@/lib/server/users";
+import { characterInput, makeCharacter, makeUser, get } from "./helpers";
 
 // 1×1 transparent PNG and a minimal 2×3 JPEG header.
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
@@ -20,8 +19,8 @@ describe("image uploads", () => {
   it("stores a valid image and rejects other files", async () => {
     const u = await makeUser();
     const img = await storeImage(u, PNG);
-    expect(img.url).toMatch(/^\/api\/images\/[a-z0-9]+$/);
-    const row = await db.image.findUniqueOrThrow({ where: { id: img.id } });
+    expect(img.url).toMatch(/^\/api\/images\/[a-z0-9-]+$/);
+    const row = (await get.image(img.id))!;
     expect(row).toMatchObject({ ownerId: u.id, mime: "image/png", width: 1, height: 1 });
     await expect(storeImage(u, Buffer.from("not an image at all"))).rejects.toMatchObject({ code: "bad_request" });
     await expect(storeImage(u, Buffer.alloc(0))).rejects.toMatchObject({ code: "bad_request" });
@@ -44,7 +43,7 @@ describe("multiple categories", () => {
     const u = await makeUser();
     const c = await createCharacter(u, characterInput({ categories: ["mystery", "romance", "fantasy"] }));
     expect(c.category).toBe("mystery");
-    expect(JSON.parse(c.categories)).toEqual(["mystery", "romance", "fantasy"]);
+    expect(c.categories).toEqual(["mystery", "romance", "fantasy"]);
   });
 
   it("rejects zero, more than 10, or unknown categories at the API boundary", () => {
@@ -66,7 +65,7 @@ describe("multiple categories", () => {
     }
     const { items } = await searchCharacters({ q: name, category: "romance", sort: "newest", page: 1 }, null);
     expect(items).toHaveLength(0);
-    const card = toCard({ ...(await db.character.findUniqueOrThrow({ where: { id: c.id } })), owner: { displayName: "x" } });
+    const card = toCard({ ...(await get.character(c.id))!, owner: { displayName: "x" } });
     expect(card.categories).toEqual(["horror", "comedy"]);
   });
 });

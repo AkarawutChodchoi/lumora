@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { MessageCircle, Heart, Lock, EyeOff } from "lucide-react";
-import type { CharacterCard as Card } from "@/server/services/characters";
+import type { CharacterCard as Card } from "@/lib/server/characters";
 import { Avatar, Badge } from "@/components/ui/misc";
 import { useLocale, useT } from "@/i18n/client";
 import { INTL_LOCALE } from "@/i18n/config";
@@ -14,7 +14,7 @@ export function CharacterCard({ c, showStatus }: { c: Card; showStatus?: boolean
   return (
     <Link
       href={`/characters/${c.id}`}
-      className="group relative flex flex-col overflow-hidden rounded-[var(--radius-card)] border border-line bg-surface transition hover:-translate-y-0.5 hover:border-line-strong hover:shadow-[0_12px_40px_-16px_#8b7bff80] focus-visible:-translate-y-0.5"
+      className="group relative flex flex-col overflow-hidden rounded-2xl border border-line bg-surface transition hover:-translate-y-0.5 hover:border-line-strong hover:shadow-[0_12px_40px_-16px_#8b7bff80] focus-visible:-translate-y-0.5"
     >
       <div className="relative aspect-[4/5] overflow-hidden">
         <Avatar name={c.name} src={c.avatarUrl} className="size-full text-6xl transition duration-500 group-hover:scale-[1.03]" rounded="rounded-none" />
@@ -69,7 +69,7 @@ export function CharacterGridSkeleton({ count = 8 }: { count?: number }) {
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4">
       {Array.from({ length: count }, (_, i) => (
-        <div key={i} className="overflow-hidden rounded-[var(--radius-card)] border border-line">
+        <div key={i} className="overflow-hidden rounded-2xl border border-line">
           <div className="skeleton aspect-[4/5]" />
           <div className="skeleton m-3 h-3 w-2/3 rounded" />
         </div>

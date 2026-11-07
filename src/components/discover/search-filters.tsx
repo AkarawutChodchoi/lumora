@@ -6,7 +6,7 @@ import { useState } from "react";
 import { ChevronDown, Hash, LayoutGrid, X } from "lucide-react";
 import { ChipPicker } from "@/components/ui/chip-picker";
 import { useT } from "@/i18n/client";
-import { CATEGORY_GROUPS, POPULAR_CATEGORIES, TAG_GROUPS } from "@/server/domain/taxonomy";
+import { CATEGORY_GROUPS, POPULAR_CATEGORIES, TAG_GROUPS } from "@/lib/domain/taxonomy";
 
 type Params = { q?: string; category?: string; tag?: string; sort: string };
 
@@ -23,7 +23,7 @@ export function SearchFilters({ params }: { params: Params }) {
   const router = useRouter();
   const [picker, setPicker] = useState<null | "category" | "tag">(null);
   const quick = params.category && !POPULAR_CATEGORIES.includes(params.category) ? [params.category, ...POPULAR_CATEGORIES] : POPULAR_CATEGORIES;
-  const chip = (on: boolean) => `shrink-0 rounded-full px-3.5 py-1.5 text-sm transition-colors ${on ? "bg-accent text-white" : "border border-line text-muted hover:text-fg"}`;
+  const chip = (on: boolean) => `shrink-0 rounded-full px-3.5 py-1.5 text-sm transition-colors ${on ? "bg-accent text-on-accent" : "border border-line text-muted hover:text-fg"}`;
 
   return (
     <div className="mb-6 space-y-3">
@@ -39,12 +39,12 @@ export function SearchFilters({ params }: { params: Params }) {
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" onClick={() => setPicker("category")} className="inline-flex items-center gap-1.5 rounded-xl border border-line bg-surface-2 px-3 py-2 text-sm hover:border-line-strong">
-          <LayoutGrid className="size-4 text-accent" />
+          <LayoutGrid className="size-4 text-accent-ink" />
           {params.category ? (t.enums.category[params.category] ?? params.category) : t.picker.allCategories}
           <ChevronDown className="size-4 text-faint" />
         </button>
         <button type="button" onClick={() => setPicker("tag")} className="inline-flex items-center gap-1.5 rounded-xl border border-line bg-surface-2 px-3 py-2 text-sm hover:border-line-strong">
-          <Hash className="size-4 text-accent" />
+          <Hash className="size-4 text-accent-ink" />
           {params.tag ? (t.enums.tag[params.tag] ?? params.tag) : t.picker.filterTag}
           <ChevronDown className="size-4 text-faint" />
         </button>

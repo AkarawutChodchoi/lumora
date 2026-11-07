@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { db } from "@/server/db";
-import { addMemory, deleteMemory, extractMemories, listMemories, recordUserStatedMemories, renderMemory, retrieveMemories, words } from "@/server/services/memory";
-import { makeCharacter, makeUser } from "./helpers";
+import { and, eq } from "drizzle-orm";
+import { db, schema } from "@/db";
+import { addMemory, deleteMemory, extractMemories, listMemories, recordUserStatedMemories, renderMemory, retrieveMemories, words } from "@/lib/server/memory";
+import { makeCharacter, makeUser, setUser } from "./helpers";
 
 describe("memory extraction", () => {
   it("extracts explicit facts in English and Thai", () => {
@@ -52,7 +53,7 @@ describe("memory storage and retrieval", () => {
     await recordUserStatedMemories({ user: u, characterId: character.id, conversationId: null, messageId: "m2", text: "Actually, call me Beth" });
     const active = await retrieveMemories(u.id, character.id, "name");
     expect(active.filter((m) => m.key === "user.name").map((m) => m.content)).toEqual(["{{user}}'s name is Beth."]);
-    const all = await db.memory.findMany({ where: { userId: u.id, key: "user.name" } });
+    const all = await db.select().from(schema.memory).where(and(eq(schema.memory.userId, u.id), eq(schema.memory.key, "user.name")));
     expect(all).toHaveLength(2);
     expect(all.find((m) => m.content.includes("Ann"))?.supersededById).toBeTruthy();
   });
@@ -77,16 +78,16 @@ describe("memory storage and retrieval", () => {
     const other = await makeUser();
     const m = await addMemory(u, character.id, { type: "world", content: "The kingdom is at war", importance: 4 });
     await expect(deleteMemory(other, m.id)).rejects.toMatchObject({ code: "not_found" });
-    await db.memory.update({ where: { id: m.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
+    await db.update(schema.memory).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(schema.memory.id, m.id));
     expect(await retrieveMemories(u.id, character.id, "kingdom")).toHaveLength(0);
     await deleteMemory(u, m.id);
-    expect(await db.memory.findUnique({ where: { id: m.id } })).toBeNull();
+    expect((await db.select().from(schema.memory).where(eq(schema.memory.id, m.id))).length).toBe(0);
   });
 
   it("stores the user as a placeholder and shows it as the user's name", async () => {
     const { character } = await setup();
     const u = await makeUser();
-    const named = await db.user.update({ where: { id: u.id }, data: { displayName: "Thyme" } });
+    const named = await setUser(u, { name: "Thyme" });
     // Typing your own name in a memory stores the placeholder, so renaming later stays correct.
     const m = await addMemory(named, character.id, { type: "relationship", content: "Thyme promised Aria to return at dawn", importance: 4 });
     expect(m.content).toBe("{{user}} promised Aria to return at dawn");

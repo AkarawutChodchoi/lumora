@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { Badge, PageHeader } from "@/components/ui/misc";
 import { ReasonAction } from "@/components/admin/admin-actions";
-import { pageStaff } from "@/server/auth/current";
-import { listReports } from "@/server/services/admin";
+import { pageStaff } from "@/lib/server/access";
+import { listReports } from "@/lib/server/admin";
 import { getLocale, getT, pageTitle } from "@/i18n/server";
 import { INTL_LOCALE } from "@/i18n/config";
 

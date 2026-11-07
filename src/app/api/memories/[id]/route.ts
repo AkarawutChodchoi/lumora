@@ -1,7 +1,7 @@
-import { ok, parseJson, route } from "@/server/http";
+import { ok, parseJson, route } from "@/lib/server/http";
 type Ctx = { params: Promise<{ id: string }> };
-import { requireUser } from "@/server/auth/guards";
-import { deleteMemory, editMemory, memoryInputSchema } from "@/server/services/memory";
+import { requireUser } from "@/lib/server/access";
+import { deleteMemory, editMemory, memoryInputSchema } from "@/lib/server/memory";
 
 export const PATCH = route(async (req: Request, { params }: Ctx) => {
   const user = await requireUser();

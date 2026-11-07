@@ -1,41 +1,34 @@
-import { PageHeader } from "@/components/ui/misc";
 import { CoinsCenter } from "@/components/billing/coins-center";
-import { pageUser } from "@/server/auth/current";
-import { paymentsEnabled } from "@/server/config";
-import { COIN_PACKAGES, PLANS } from "@/server/domain/catalog";
-import { dailyBonusClaimedToday, getBalance, listLedger } from "@/server/services/credits";
-import { getActiveSubscription, getEntitlements } from "@/server/services/entitlements";
-import { getFeatureFlags } from "@/server/services/settings";
-import { getT, pageTitle } from "@/i18n/server";
-import { modelOptions } from "@/server/ai/models";
+import { pageUser } from "@/lib/server/access";
+import { paymentsEnabled } from "@/lib/server/config";
+import { COIN_PACKS, DAILY_BONUS, MEMBERSHIP_PLANS, PLANS } from "@/lib/domain/catalog";
+import { dailyBonusClaimedToday, getWallet } from "@/lib/server/wallet";
+import { membershipEnd } from "@/lib/server/entitlements";
+import { getFeatureFlags } from "@/lib/server/settings";
+import { myPayments } from "@/lib/server/payments/actions";
+import { mockAllowed } from "@/lib/server/payments/gateway";
+import { pageTitle } from "@/i18n/server";
+import { modelOptions } from "@/lib/server/ai/models";
 
+export const dynamic = "force-dynamic";
 export const generateMetadata = pageTitle("coins");
 
 export default async function CoinsPage() {
   const user = await pageUser("/coins");
-  const [balance, ledger, claimed, entitlements, sub, flags] = await Promise.all([
-    getBalance(user.id),
-    listLedger(user.id),
-    dailyBonusClaimedToday(user.id),
-    getEntitlements(user.id),
-    getActiveSubscription(user.id),
-    getFeatureFlags(),
-  ]);
-  const t = await getT();
+  const [w, claimed, plusUntil, flags, payments] = await Promise.all([getWallet(user.id), dailyBonusClaimedToday(user.id), membershipEnd(user.id), getFeatureFlags(), myPayments()]);
   return (
     <div className="animate-fade-in">
-      <PageHeader title={t.coins.title} description={t.coins.subtitle} />
       <CoinsCenter
-        balance={balance}
+        wallet={{ paid: w.paid, bonus: w.bonus }}
         dailyClaimed={claimed}
         dailyEnabled={flags.dailyBonus}
+        dailyAmount={DAILY_BONUS}
         paymentsEnabled={paymentsEnabled()}
-        packages={COIN_PACKAGES.map((p) => ({ ...p }))}
-        plans={JSON.parse(JSON.stringify(PLANS))}
-        plan={entitlements.plan}
-        subscription={sub ? { status: sub.status, currentPeriodEnd: sub.currentPeriodEnd.toISOString() } : null}
-        ledger={JSON.parse(JSON.stringify(ledger.items))}
-        nextCursor={ledger.nextCursor}
+        mockPayments={process.env.PAYMENT_GATEWAY === "mock" && mockAllowed()}
+        packs={COIN_PACKS.map((p) => ({ ...p }))}
+        plans={MEMBERSHIP_PLANS.map((p) => ({ ...p, coins: PLANS[p.plan].monthlyCreditAllowance * Math.max(1, Math.round(p.days / 30)) }))}
+        plusUntil={plusUntil?.toISOString() ?? null}
+        payments={payments}
         models={modelOptions()}
       />
     </div>

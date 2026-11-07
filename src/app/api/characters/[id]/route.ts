@@ -1,12 +1,12 @@
-import { ok, parseJson, route } from "@/server/http";
+import { ok, parseJson, route } from "@/lib/server/http";
 type Ctx = { params: Promise<{ id: string }> };
-import { requireActiveUser, requireUser } from "@/server/auth/guards";
-import { getSessionUser } from "@/server/auth/session";
-import { characterInputSchema, deleteCharacter, getViewableCharacter, toDetail, updateCharacter } from "@/server/services/characters";
+import { requireActiveUser, requireUser } from "@/lib/server/access";
+import { currentUser } from "@/lib/server/access";
+import { characterInputSchema, deleteCharacter, getViewableCharacter, toDetail, updateCharacter } from "@/lib/server/characters";
 
 export const GET = route(async (_req: Request, { params }: Ctx) => {
   const { id } = await params;
-  const viewer = await getSessionUser();
+  const viewer = await currentUser();
   return ok({ character: toDetail(await getViewableCharacter(id, viewer), viewer) });
 });
 

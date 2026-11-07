@@ -1,7 +1,7 @@
-import { ok, parseJson, route } from "@/server/http";
+import { ok, parseJson, route } from "@/lib/server/http";
 import { z } from "zod";
-import { requireUser } from "@/server/auth/guards";
-import { addMemory, clearMemories, listMemories, memoryInputSchema } from "@/server/services/memory";
+import { requireUser } from "@/lib/server/access";
+import { addMemory, clearMemories, listMemories, memoryInputSchema } from "@/lib/server/memory";
 
 const charParam = (req: Request) => z.string().min(1).max(60).parse(new URL(req.url).searchParams.get("characterId"));
 
